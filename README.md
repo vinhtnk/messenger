@@ -16,7 +16,7 @@ A lightweight Electron wrapper for Messenger.com, created after the official Mes
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Messenger.git
+git clone https://github.com/vinhtnk/messenger.git
 cd Messenger
 
 # Install dependencies
@@ -34,6 +34,18 @@ npm run build
 ```
 
 The distributable will be created in the `dist/` folder.
+
+### From DMG (Pre-built)
+
+1. Download the latest DMG from [Releases](https://github.com/vinhtnk/messenger/releases)
+2. Open the DMG and drag Messenger to Applications
+3. Since the app is not code-signed, run this command to remove the quarantine attribute:
+
+```bash
+xattr -cr /Applications/Messenger.app
+```
+
+Or go to **System Settings > Privacy & Security** and click **"Open Anyway"**.
 
 ## Requirements
 
