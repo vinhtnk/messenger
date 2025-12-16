@@ -52,8 +52,12 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Check for updates when window is shown
+  // Check for updates when window is shown or focused
   mainWindow.on('show', () => {
+    autoUpdater.checkForUpdatesAndNotify();
+  });
+
+  mainWindow.on('focus', () => {
     autoUpdater.checkForUpdatesAndNotify();
   });
 }
@@ -103,6 +107,15 @@ function createMenu() {
     {
       label: 'Window',
       submenu: [
+        {
+          label: 'Close Window',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.hide();
+            }
+          }
+        },
         { role: 'minimize' },
         { role: 'zoom' },
         { type: 'separator' },
