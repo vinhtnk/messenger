@@ -51,6 +51,11 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Check for updates when window is shown
+  mainWindow.on('show', () => {
+    autoUpdater.checkForUpdatesAndNotify();
+  });
 }
 
 // Create application menu
