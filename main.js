@@ -3,6 +3,7 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 let mainWindow;
+let isQuitting = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -39,9 +40,9 @@ function createWindow() {
     }
   });
 
-  // Hide window instead of closing on macOS
+  // Hide window instead of closing on macOS (unless quitting)
   mainWindow.on('close', (event) => {
-    if (process.platform === 'darwin') {
+    if (process.platform === 'darwin' && !isQuitting) {
       event.preventDefault();
       mainWindow.hide();
     }
@@ -129,6 +130,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
 // Set the app name for macOS
