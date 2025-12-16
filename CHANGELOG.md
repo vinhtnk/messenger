@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.12
+- Fix electron-store compatibility issue
+
 ## v1.0.11
 - Simplify update check - show download link instead of auto-update
 - Check for updates only on app launch
