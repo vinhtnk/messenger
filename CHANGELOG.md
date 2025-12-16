@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.13
+- Fix rounded icon with proper padding
+
 ## v1.0.12
 - Fix electron-store compatibility issue
 
