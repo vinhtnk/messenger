@@ -1,15 +1,28 @@
 const { app, BrowserWindow, shell, Menu, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const Store = require('electron-store');
 const path = require('path');
+
+const store = new Store();
 
 let mainWindow;
 let isQuitting = false;
 let isUpdating = false;
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  // Get saved window bounds or use defaults
+  const windowBounds = store.get('windowBounds', {
     width: 1200,
     height: 800,
+    x: undefined,
+    y: undefined,
+  });
+
+  mainWindow = new BrowserWindow({
+    width: windowBounds.width,
+    height: windowBounds.height,
+    x: windowBounds.x,
+    y: windowBounds.y,
     minWidth: 400,
     minHeight: 600,
     icon: path.join(__dirname, 'icon.png'),
@@ -20,6 +33,15 @@ function createWindow() {
     },
     titleBarStyle: 'default',
     title: 'Messenger',
+  });
+
+  // Save window bounds on resize and move
+  mainWindow.on('resize', () => {
+    store.set('windowBounds', mainWindow.getBounds());
+  });
+
+  mainWindow.on('move', () => {
+    store.set('windowBounds', mainWindow.getBounds());
   });
 
   mainWindow.loadURL('https://www.messenger.com');

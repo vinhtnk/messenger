@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.10
+- Remember window size and position after restart
+
 ## v1.0.9
 - Fix auto-update for unsigned macOS app (quit to install)
 - Prevent duplicate update dialogs while downloading
