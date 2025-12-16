@@ -123,6 +123,8 @@ app.whenReady().then(() => {
     } else {
       mainWindow.show();
     }
+    // Check for updates when app comes to foreground
+    autoUpdater.checkForUpdatesAndNotify();
   });
 });
 
