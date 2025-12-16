@@ -167,7 +167,13 @@ autoUpdater.on('update-downloaded', () => {
   }).then((result) => {
     if (result.response === 0) {
       isQuitting = true;
-      autoUpdater.quitAndInstall(false, true);
+      // Remove listeners that prevent quit
+      app.removeAllListeners('window-all-closed');
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.removeAllListeners('close');
+        win.destroy();
+      });
+      autoUpdater.quitAndInstall();
     }
   });
 });
