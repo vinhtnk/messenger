@@ -1,4 +1,5 @@
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 let mainWindow;
@@ -112,6 +113,9 @@ app.whenReady().then(() => {
   createMenu();
   createWindow();
 
+  // Check for updates
+  autoUpdater.checkForUpdatesAndNotify();
+
   app.on('activate', () => {
     if (mainWindow === null) {
       createWindow();
@@ -129,3 +133,32 @@ app.on('window-all-closed', () => {
 
 // Set the app name for macOS
 app.setName('Messenger');
+
+// Auto-updater
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+autoUpdater.on('update-available', () => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Available',
+    message: 'A new version is available. Downloading now...',
+  });
+});
+
+autoUpdater.on('update-downloaded', () => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: 'Update Ready',
+    message: 'A new version has been downloaded. Restart the app to apply the update.',
+    buttons: ['Restart', 'Later']
+  }).then((result) => {
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.log('Auto-updater error:', err);
+});

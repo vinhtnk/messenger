@@ -6,7 +6,11 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --mac",
-    "build:dmg": "electron-builder --mac dmg"
+    "build:dmg": "electron-builder --mac dmg",
+    "release:patch": "npm version patch && npm run release:publish",
+    "release:minor": "npm version minor && npm run release:publish",
+    "release:major": "npm version major && npm run release:publish",
+    "release:publish": "dotenv -- bash -c 'CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish always'"
   },
   "keywords": [
     "messenger",
@@ -16,6 +20,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "dotenv-cli": "^11.0.0",
     "electron": "^39.2.7",
     "electron-builder": "^26.0.12"
   },
@@ -28,6 +33,14 @@
         "dmg",
         "zip"
       ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "vinhtnk",
+      "repo": "messenger"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   }
 }
