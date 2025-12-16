@@ -38,6 +38,14 @@ function createWindow() {
     }
   });
 
+  // Hide window instead of closing on macOS
+  mainWindow.on('close', (event) => {
+    if (process.platform === 'darwin') {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -105,8 +113,10 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow === null) {
       createWindow();
+    } else {
+      mainWindow.show();
     }
   });
 });
