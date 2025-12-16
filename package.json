@@ -38,7 +38,12 @@
     "publish": {
       "provider": "github",
       "owner": "vinhtnk",
-      "repo": "messenger"
+      "repo": "messenger",
+      "releaseType": "release"
+    },
+    "generateUpdatesFilesForAllChannels": true,
+    "releaseInfo": {
+      "releaseNotesFile": "CHANGELOG.md"
     }
   },
   "dependencies": {
