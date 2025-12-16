@@ -4,6 +4,7 @@ const path = require('path');
 
 let mainWindow;
 let isQuitting = false;
+let isUpdating = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -54,11 +55,15 @@ function createWindow() {
 
   // Check for updates when window is shown or focused
   mainWindow.on('show', () => {
-    autoUpdater.checkForUpdatesAndNotify();
+    if (!isUpdating) {
+      autoUpdater.checkForUpdatesAndNotify();
+    }
   });
 
   mainWindow.on('focus', () => {
-    autoUpdater.checkForUpdatesAndNotify();
+    if (!isUpdating) {
+      autoUpdater.checkForUpdatesAndNotify();
+    }
   });
 }
 
@@ -142,7 +147,9 @@ app.whenReady().then(() => {
       mainWindow.show();
     }
     // Check for updates when app comes to foreground
-    autoUpdater.checkForUpdatesAndNotify();
+    if (!isUpdating) {
+      autoUpdater.checkForUpdatesAndNotify();
+    }
   });
 });
 
@@ -164,6 +171,7 @@ autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('update-available', () => {
+  isUpdating = true;
   dialog.showMessageBox({
     type: 'info',
     title: 'Update Available',
