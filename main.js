@@ -4,10 +4,10 @@ const Store = require('electron-store');
 const path = require('path');
 
 const store = new Store();
+const GITHUB_RELEASES_URL = 'https://github.com/vinhtnk/messenger/releases';
 
 let mainWindow;
 let isQuitting = false;
-let isUpdating = false;
 
 function createWindow() {
   // Get saved window bounds or use defaults
@@ -74,19 +74,6 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-
-  // Check for updates when window is shown or focused
-  mainWindow.on('show', () => {
-    if (!isUpdating) {
-      autoUpdater.checkForUpdatesAndNotify();
-    }
-  });
-
-  mainWindow.on('focus', () => {
-    if (!isUpdating) {
-      autoUpdater.checkForUpdatesAndNotify();
-    }
-  });
 }
 
 // Create application menu
@@ -96,6 +83,12 @@ function createMenu() {
       label: 'Messenger',
       submenu: [
         { role: 'about' },
+        {
+          label: 'Check for Updates...',
+          click: () => {
+            checkForUpdates();
+          }
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -155,22 +148,23 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+// Check for updates and show dialog with download link
+function checkForUpdates() {
+  autoUpdater.checkForUpdates();
+}
+
 app.whenReady().then(() => {
   createMenu();
   createWindow();
 
-  // Check for updates
-  autoUpdater.checkForUpdatesAndNotify();
+  // Check for updates on launch only
+  checkForUpdates();
 
   app.on('activate', () => {
     if (mainWindow === null) {
       createWindow();
     } else {
       mainWindow.show();
-    }
-    // Check for updates when app comes to foreground
-    if (!isUpdating) {
-      autoUpdater.checkForUpdatesAndNotify();
     }
   });
 });
@@ -188,30 +182,24 @@ app.on('before-quit', () => {
 // Set the app name for macOS
 app.setName('Messenger');
 
-// Auto-updater
-autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
+// Auto-updater - disable auto download
+autoUpdater.autoDownload = false;
 
-autoUpdater.on('update-available', () => {
-  isUpdating = true;
+autoUpdater.on('update-available', (info) => {
   dialog.showMessageBox({
     type: 'info',
     title: 'Update Available',
-    message: 'A new version is available. Downloading now...',
+    message: `A new version (${info.version}) is available.`,
+    buttons: ['Download', 'Later']
+  }).then((result) => {
+    if (result.response === 0) {
+      shell.openExternal(GITHUB_RELEASES_URL);
+    }
   });
 });
 
-autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Update Ready',
-    message: 'A new version has been downloaded. Quit the app to apply the update.',
-    buttons: ['Quit Now', 'Later']
-  }).then((result) => {
-    if (result.response === 0) {
-      app.quit();
-    }
-  });
+autoUpdater.on('update-not-available', () => {
+  // Silent - no dialog when up to date
 });
 
 autoUpdater.on('error', (err) => {

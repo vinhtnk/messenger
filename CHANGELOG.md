@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.11
+- Simplify update check - show download link instead of auto-update
+- Check for updates only on app launch
+- Add "Check for Updates" menu item
+- Resize app icon with proper padding
+
 ## v1.0.10
 - Remember window size and position after restart
 

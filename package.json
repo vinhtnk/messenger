@@ -10,7 +10,8 @@
     "release:patch": "npm version patch && npm run release:publish",
     "release:minor": "npm version minor && npm run release:publish",
     "release:major": "npm version major && npm run release:publish",
-    "release:publish": "dotenv -- bash -c 'CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish always'"
+    "release:publish": "dotenv -- bash -c 'CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish always' && npm run release:notes",
+    "release:notes": "node scripts/update-release-notes.js"
   },
   "keywords": [
     "messenger",
