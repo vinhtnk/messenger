@@ -17,7 +17,7 @@
     "facebook",
     "chat"
   ],
-  "author": "",
+  "author": "Vinh Tran (VinhTNK)",
   "license": "ISC",
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
