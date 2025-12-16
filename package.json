@@ -28,6 +28,7 @@
     "appId": "com.messenger.desktop",
     "productName": "Messenger",
     "mac": {
+      "icon": "icon.icns",
       "category": "public.app-category.social-networking",
       "target": [
         "dmg",
