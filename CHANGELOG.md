@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.14
+- Fix app icon with rounded corners and padding
+
 ## v1.0.13
 - Fix rounded icon with proper padding
 
