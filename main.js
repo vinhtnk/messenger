@@ -161,7 +161,8 @@ autoUpdater.on('update-downloaded', () => {
     buttons: ['Restart', 'Later']
   }).then((result) => {
     if (result.response === 0) {
-      autoUpdater.quitAndInstall();
+      isQuitting = true;
+      autoUpdater.quitAndInstall(false, true);
     }
   });
 });
