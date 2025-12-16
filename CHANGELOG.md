@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.9
+- Fix auto-update for unsigned macOS app (quit to install)
+- Prevent duplicate update dialogs while downloading
+
 ## v1.0.8
 - Add Cmd+W shortcut to hide window (not quit)
 - Check for updates when window gains focus

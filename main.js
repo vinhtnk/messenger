@@ -183,18 +183,11 @@ autoUpdater.on('update-downloaded', () => {
   dialog.showMessageBox({
     type: 'info',
     title: 'Update Ready',
-    message: 'A new version has been downloaded. Restart the app to apply the update.',
-    buttons: ['Restart', 'Later']
+    message: 'A new version has been downloaded. Quit the app to apply the update.',
+    buttons: ['Quit Now', 'Later']
   }).then((result) => {
     if (result.response === 0) {
-      isQuitting = true;
-      // Remove listeners that prevent quit
-      app.removeAllListeners('window-all-closed');
-      BrowserWindow.getAllWindows().forEach((win) => {
-        win.removeAllListeners('close');
-        win.destroy();
-      });
-      autoUpdater.quitAndInstall();
+      app.quit();
     }
   });
 });
