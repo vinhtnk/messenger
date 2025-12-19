@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.15
+- Open external links (including Facebook) in browser
+- Refactor URLs to use constants
+
 ## v1.0.14
 - Fix app icon with rounded corners and padding
 

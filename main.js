@@ -4,7 +4,25 @@ const Store = require('electron-store');
 const path = require('path');
 
 const store = new Store();
+
+// URLs
+const MESSENGER_URL = 'https://www.messenger.com';
+const MESSENGER_URL_ALT = 'https://messenger.com';
+const FACEBOOK_LOGIN_URL = 'https://www.facebook.com/login';
+const FACEBOOK_CHECKPOINT_URL = 'https://www.facebook.com/checkpoint';
 const GITHUB_RELEASES_URL = 'https://github.com/vinhtnk/messenger/releases';
+
+// Helper function to check if URL is allowed in app
+function isAllowedUrl(url) {
+  return url.startsWith(MESSENGER_URL) ||
+         url.startsWith(MESSENGER_URL_ALT) ||
+         url.startsWith(FACEBOOK_LOGIN_URL) ||
+         url.startsWith(FACEBOOK_CHECKPOINT_URL);
+}
+
+function isMessengerUrl(url) {
+  return url.startsWith(MESSENGER_URL) || url.startsWith(MESSENGER_URL_ALT);
+}
 
 let mainWindow;
 let isQuitting = false;
@@ -44,11 +62,11 @@ function createWindow() {
     store.set('windowBounds', mainWindow.getBounds());
   });
 
-  mainWindow.loadURL('https://www.messenger.com');
+  mainWindow.loadURL(MESSENGER_URL);
 
   // Handle external links - open in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith('https://www.messenger.com') && !url.startsWith('https://messenger.com')) {
+    if (!isMessengerUrl(url)) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
@@ -57,7 +75,7 @@ function createWindow() {
 
   // Handle navigation to external sites
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('https://www.messenger.com') && !url.startsWith('https://messenger.com') && !url.startsWith('https://www.facebook.com')) {
+    if (!isAllowedUrl(url)) {
       event.preventDefault();
       shell.openExternal(url);
     }
