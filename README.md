@@ -1,6 +1,6 @@
 # Messenger Desktop
 
-A lightweight Electron wrapper for Messenger.com, created after the official Messenger app for macOS was discontinued.
+A lightweight Electron wrapper for Facebook Messenger, created after the official Messenger app for macOS was discontinued.
 
 ## Features
 

@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.16
+- Switch from messenger.com to facebook.com/messages (messenger.com shutting down April 2026)
+
 ## v1.0.15
 - Open external links (including Facebook) in browser
 - Refactor URLs to use constants

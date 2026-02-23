@@ -6,22 +6,17 @@ const path = require('path');
 const store = new Store();
 
 // URLs
-const MESSENGER_URL = 'https://www.messenger.com';
-const MESSENGER_URL_ALT = 'https://messenger.com';
-const FACEBOOK_LOGIN_URL = 'https://www.facebook.com/login';
-const FACEBOOK_CHECKPOINT_URL = 'https://www.facebook.com/checkpoint';
+const MESSENGER_URL = 'https://www.facebook.com/messages';
+const FACEBOOK_URL = 'https://www.facebook.com';
 const GITHUB_RELEASES_URL = 'https://github.com/vinhtnk/messenger/releases';
 
 // Helper function to check if URL is allowed in app
 function isAllowedUrl(url) {
-  return url.startsWith(MESSENGER_URL) ||
-         url.startsWith(MESSENGER_URL_ALT) ||
-         url.startsWith(FACEBOOK_LOGIN_URL) ||
-         url.startsWith(FACEBOOK_CHECKPOINT_URL);
+  return url.startsWith(FACEBOOK_URL);
 }
 
 function isMessengerUrl(url) {
-  return url.startsWith(MESSENGER_URL) || url.startsWith(MESSENGER_URL_ALT);
+  return url.startsWith(FACEBOOK_URL);
 }
 
 let mainWindow;
