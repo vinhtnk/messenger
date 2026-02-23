@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.17
+- Persist login session across app updates
+- Fix external links staying inside app — non-messages Facebook links now open in browser
+
 ## v1.0.16
 - Switch from messenger.com to facebook.com/messages (messenger.com shutting down April 2026)
 

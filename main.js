@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
@@ -7,20 +7,50 @@ const store = new Store();
 
 // URLs
 const MESSENGER_URL = 'https://www.facebook.com/messages';
-const FACEBOOK_URL = 'https://www.facebook.com';
+const MESSENGER_URL_ALT = 'https://facebook.com/messages';
+const FACEBOOK_LOGIN_URL = 'https://www.facebook.com/login';
+const FACEBOOK_CHECKPOINT_URL = 'https://www.facebook.com/checkpoint';
 const GITHUB_RELEASES_URL = 'https://github.com/vinhtnk/messenger/releases';
 
 // Helper function to check if URL is allowed in app
 function isAllowedUrl(url) {
-  return url.startsWith(FACEBOOK_URL);
+  return url.startsWith(MESSENGER_URL) ||
+         url.startsWith(MESSENGER_URL_ALT) ||
+         url.startsWith(FACEBOOK_LOGIN_URL) ||
+         url.startsWith(FACEBOOK_CHECKPOINT_URL);
 }
 
 function isMessengerUrl(url) {
-  return url.startsWith(FACEBOOK_URL);
+  return url.startsWith(MESSENGER_URL) || url.startsWith(MESSENGER_URL_ALT);
 }
 
 let mainWindow;
 let isQuitting = false;
+
+// One-time migration of cookies from default session to named persistent partition
+async function migrateSession() {
+  if (store.get('sessionMigrated')) return;
+
+  const defaultSession = session.defaultSession;
+  const messengerSession = session.fromPartition('persist:messenger');
+
+  try {
+    const cookies = await defaultSession.cookies.get({});
+    for (const cookie of cookies) {
+      try {
+        const domain = cookie.domain.startsWith('.') ? cookie.domain.slice(1) : cookie.domain;
+        const url = `https://${domain}${cookie.path || '/'}`;
+        await messengerSession.cookies.set({ ...cookie, url });
+      } catch (e) {
+        // Skip cookies that fail to migrate
+      }
+    }
+  } catch (e) {
+    console.error('Session migration error:', e);
+  }
+
+  store.set('sessionMigrated', true);
+}
 
 function createWindow() {
   // Get saved window bounds or use defaults
@@ -43,6 +73,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      partition: 'persist:messenger',
     },
     titleBarStyle: 'default',
     title: 'Messenger',
@@ -166,7 +197,8 @@ function checkForUpdates() {
   autoUpdater.checkForUpdates();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await migrateSession();
   createMenu();
   createWindow();
 
