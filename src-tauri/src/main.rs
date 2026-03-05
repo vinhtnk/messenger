@@ -10,15 +10,12 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
 const MESSENGER_URL: &str = "https://www.facebook.com/messages";
-const MESSENGER_URL_ALT: &str = "https://facebook.com/messages";
-const FACEBOOK_LOGIN_URL: &str = "https://www.facebook.com/login";
-const FACEBOOK_CHECKPOINT_URL: &str = "https://www.facebook.com/checkpoint";
 
 fn is_allowed_url(url: &str) -> bool {
-    url.starts_with(MESSENGER_URL)
-        || url.starts_with(MESSENGER_URL_ALT)
-        || url.starts_with(FACEBOOK_LOGIN_URL)
-        || url.starts_with(FACEBOOK_CHECKPOINT_URL)
+    url.starts_with("https://www.facebook.com/")
+        || url.starts_with("https://facebook.com/")
+        || url.starts_with("https://www.messenger.com/")
+        || url.starts_with("https://m.facebook.com/")
 }
 
 fn main() {

@@ -38,26 +38,33 @@ for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
   fi
 done
 
-# Determine version bump type (default: patch)
+# Determine version bump type or rebuild mode
 BUMP_TYPE="${1:-patch}"
-if [[ ! "$BUMP_TYPE" =~ ^(patch|minor|major)$ ]]; then
-  echo "Usage: $0 [patch|minor|major]"
+REBUILD=false
+
+if [[ "$BUMP_TYPE" == "--rebuild" ]]; then
+  REBUILD=true
+elif [[ ! "$BUMP_TYPE" =~ ^(patch|minor|major)$ ]]; then
+  echo "Usage: $0 [patch|minor|major|--rebuild]"
   exit 1
 fi
 
 cd "$PROJECT_DIR"
 
-# Bump version in package.json and get new version
-npm version "$BUMP_TYPE" --no-git-tag-version
-VERSION=$(node -p "require('./package.json').version")
-echo "Building version $VERSION"
+if [ "$REBUILD" = true ]; then
+  VERSION=$(node -p "require('./package.json').version")
+  echo "Rebuilding version $VERSION"
+else
+  npm version "$BUMP_TYPE" --no-git-tag-version
+  VERSION=$(node -p "require('./package.json').version")
+  echo "Building version $VERSION"
 
-# Sync version to tauri.conf.json and Cargo.toml
-cd "$PROJECT_DIR/src-tauri"
-sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
-sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-
-cd "$PROJECT_DIR"
+  # Sync version to tauri.conf.json and Cargo.toml
+  cd "$PROJECT_DIR/src-tauri"
+  sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
+  sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+  cd "$PROJECT_DIR"
+fi
 
 # Build with Tauri (signing is automatic when APPLE_SIGNING_IDENTITY is set)
 echo "Building and signing..."
@@ -125,26 +132,38 @@ ENDYML
 
 echo "Generated latest-mac.yml for Electron backward compatibility"
 
-# Git commit and tag
-echo "Committing version $VERSION..."
-git add -A
-git commit -m "$VERSION"
-git tag "v$VERSION"
+if [ "$REBUILD" = true ]; then
+  # Replace assets on existing GitHub release
+  echo "Replacing assets on GitHub release v$VERSION..."
+  gh release upload "v$VERSION" \
+    "$DMG_PATH" \
+    "$UPDATER_TAR" \
+    "$UPDATER_SIG" \
+    "$BUNDLE_DIR/latest.json" \
+    "$BUNDLE_DIR/latest-mac.yml" \
+    --clobber
+else
+  # Git commit and tag
+  echo "Committing version $VERSION..."
+  git add -A
+  git commit -m "$VERSION"
+  git tag "v$VERSION"
 
-# Push to GitHub
-echo "Pushing to GitHub..."
-git push
-git push --tags
+  # Push to GitHub
+  echo "Pushing to GitHub..."
+  git push
+  git push --tags
 
-# Create GitHub release with all artifacts
-echo "Creating GitHub release v$VERSION..."
-gh release create "v$VERSION" \
-  "$DMG_PATH" \
-  "$UPDATER_TAR" \
-  "$UPDATER_SIG" \
-  "$BUNDLE_DIR/latest.json" \
-  "$BUNDLE_DIR/latest-mac.yml" \
-  --title "v$VERSION" --notes-file CHANGELOG.md
+  # Create GitHub release with all artifacts
+  echo "Creating GitHub release v$VERSION..."
+  gh release create "v$VERSION" \
+    "$DMG_PATH" \
+    "$UPDATER_TAR" \
+    "$UPDATER_SIG" \
+    "$BUNDLE_DIR/latest.json" \
+    "$BUNDLE_DIR/latest-mac.yml" \
+    --title "v$VERSION" --notes-file CHANGELOG.md
+fi
 
 echo ""
 echo "Release v$VERSION published successfully!"
