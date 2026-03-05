@@ -11,16 +11,35 @@ use tauri_plugin_updater::UpdaterExt;
 
 const MESSENGER_URL: &str = "https://www.facebook.com/messages";
 
-fn is_allowed_url(url: &str) -> bool {
-    let allowed_domains = [
-        "https://www.facebook.com/",
-        "https://facebook.com/",
+fn is_messenger_or_login_url(url: &str) -> bool {
+    let allowed_paths = [
+        "https://www.facebook.com/messages",
+        "https://facebook.com/messages",
+        "https://www.facebook.com/login",
+        "https://www.facebook.com/checkpoint",
+        "https://www.facebook.com/two_factor",
+        "https://www.facebook.com/recover",
+        "https://www.facebook.com/cookie",
+        "https://www.facebook.com/privacy",
+        "https://www.facebook.com/dialog",
+        "https://m.facebook.com/login",
         "https://www.messenger.com/",
-        "https://m.facebook.com/",
         "https://www.fbsbx.com/",
         "https://static.xx.fbcdn.net/",
     ];
-    allowed_domains.iter().any(|domain| url.starts_with(domain))
+    allowed_paths.iter().any(|path| url.starts_with(path))
+}
+
+// During login, Facebook redirects through various URLs on facebook.com.
+// We allow all facebook.com navigation but use JS injection to open
+// non-Messenger links clicked in conversations in the external browser.
+fn is_facebook_domain(url: &str) -> bool {
+    url.starts_with("https://www.facebook.com/")
+        || url.starts_with("https://facebook.com/")
+        || url.starts_with("https://m.facebook.com/")
+        || url.starts_with("https://www.messenger.com/")
+        || url.starts_with("https://www.fbsbx.com/")
+        || url.starts_with("https://static.xx.fbcdn.net/")
 }
 
 fn main() {
@@ -43,16 +62,58 @@ fn main() {
             .min_inner_size(400.0, 600.0)
             .on_navigation(|url| {
                 let url_str = url.as_str();
-                if is_allowed_url(url_str) {
+
+                // Always allow Messenger and login-related URLs
+                if is_messenger_or_login_url(url_str) {
                     return true;
                 }
-                // Open external URLs in default browser
+
+                // Block external-open: scheme (from our JS injection) and open in browser
+                if url_str.starts_with("external-open:") {
+                    let real_url = &url_str["external-open:".len()..];
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("open").arg(real_url).spawn();
+                    }
+                    return false;
+                }
+
+                // Allow other facebook.com pages during login flow
+                if is_facebook_domain(url_str) {
+                    return true;
+                }
+
+                // Open everything else in default browser
                 #[cfg(target_os = "macos")]
                 {
                     let _ = std::process::Command::new("open").arg(url_str).spawn();
                 }
                 false
             })
+            .initialization_script(
+                r#"
+                // Intercept link clicks to open non-Messenger URLs in external browser
+                document.addEventListener('click', function(e) {
+                    const link = e.target.closest('a[href]');
+                    if (!link) return;
+
+                    const href = link.href;
+                    if (!href || href.startsWith('javascript:') || href.startsWith('#')) return;
+
+                    // Allow Messenger navigation within the app
+                    if (href.startsWith('https://www.facebook.com/messages') ||
+                        href.startsWith('https://facebook.com/messages') ||
+                        href.startsWith('https://www.messenger.com/')) {
+                        return;
+                    }
+
+                    // Open everything else in external browser via custom scheme
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = 'external-open:' + href;
+                }, true);
+                "#,
+            )
             .build()?;
 
             // Check for updates on launch
