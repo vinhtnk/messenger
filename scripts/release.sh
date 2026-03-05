@@ -107,6 +107,24 @@ ENDJSON
 
 echo "Generated latest.json for auto-updater"
 
+# Generate latest-mac.yml for old Electron app backward compatibility
+DMG_SHA512=$(shasum -a 512 "$DMG_PATH" | awk '{print $1}' | xxd -r -p | base64)
+DMG_SIZE=$(stat -f%z "$DMG_PATH")
+DMG_FILENAME="Messenger_${VERSION}_aarch64.dmg"
+
+cat > "$BUNDLE_DIR/latest-mac.yml" << ENDYML
+version: $VERSION
+files:
+  - url: $DMG_FILENAME
+    sha512: ${DMG_SHA512}
+    size: ${DMG_SIZE}
+path: $DMG_FILENAME
+sha512: ${DMG_SHA512}
+releaseDate: '${CURRENT_DATE}'
+ENDYML
+
+echo "Generated latest-mac.yml for Electron backward compatibility"
+
 # Git commit and tag
 echo "Committing version $VERSION..."
 git add -A
@@ -125,6 +143,7 @@ gh release create "v$VERSION" \
   "$UPDATER_TAR" \
   "$UPDATER_SIG" \
   "$BUNDLE_DIR/latest.json" \
+  "$BUNDLE_DIR/latest-mac.yml" \
   --title "v$VERSION" --notes-file CHANGELOG.md
 
 echo ""

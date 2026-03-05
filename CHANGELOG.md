@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.18
+- Migrate from Electron to Tauri for lightweight app (~10MB vs ~150MB)
+- Code signed and notarized with Apple Developer ID
+- Add in-app auto-update support
+- Note: Users will need to re-login after this update
+
 ## v1.0.17
 - Persist login session across app updates
 - Fix external links staying inside app — non-messages Facebook links now open in browser
