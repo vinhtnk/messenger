@@ -1,16 +1,16 @@
 {
   "name": "messenger",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Messenger desktop app for macOS",
-  "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --mac",
-    "build:dmg": "electron-builder --mac dmg",
+    "tauri": "cargo tauri",
+    "start": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "build:dmg": "cargo tauri build --bundles dmg",
     "release:patch": "npm version patch && npm run release:publish",
     "release:minor": "npm version minor && npm run release:publish",
     "release:major": "npm version major && npm run release:publish",
-    "release:publish": "dotenv -- bash -c 'CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish always' && npm run release:notes",
+    "release:publish": "cargo tauri build && npm run release:notes",
     "release:notes": "node scripts/update-release-notes.js"
   },
   "keywords": [
@@ -21,34 +21,6 @@
   "author": "Vinh Tran (VinhTNK)",
   "license": "ISC",
   "devDependencies": {
-    "dotenv-cli": "^11.0.0",
-    "electron": "^39.2.7",
-    "electron-builder": "^26.0.12"
-  },
-  "build": {
-    "appId": "com.messenger.desktop",
-    "productName": "Messenger",
-    "mac": {
-      "icon": "icon.icns",
-      "category": "public.app-category.social-networking",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "vinhtnk",
-      "repo": "messenger",
-      "releaseType": "release"
-    },
-    "generateUpdatesFilesForAllChannels": true,
-    "releaseInfo": {
-      "releaseNotesFile": "CHANGELOG.md"
-    }
-  },
-  "dependencies": {
-    "electron-store": "^8.2.0",
-    "electron-updater": "^6.6.2"
+    "dotenv-cli": "^11.0.0"
   }
 }

@@ -1,8 +1,10 @@
 node_modules/
 dist/
+dist-frontend/
 out/
 .DS_Store
 *.log
 npm-debug.log*
 .env
 .idea/
+src-tauri/target/
