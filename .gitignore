@@ -8,3 +8,5 @@ npm-debug.log*
 .env
 .idea/
 src-tauri/target/
+.tauri_updater_key
+.tauri_updater_key.pub

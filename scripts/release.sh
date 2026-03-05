@@ -19,6 +19,17 @@ else
   exit 1
 fi
 
+# Set updater signing key
+UPDATER_KEY_PATH="$PROJECT_DIR/.tauri_updater_key"
+if [ -f "$UPDATER_KEY_PATH" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY="$(cat "$UPDATER_KEY_PATH")"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+else
+  echo "Error: Updater signing key not found at $UPDATER_KEY_PATH"
+  echo "Generate one with: cargo tauri signer generate -w $UPDATER_KEY_PATH"
+  exit 1
+fi
+
 # Validate required env vars
 for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
   if [ -z "${!var:-}" ]; then
@@ -53,7 +64,10 @@ echo "Building and signing..."
 cargo tauri build
 
 # Notarize the DMG
-DMG_PATH="$PROJECT_DIR/src-tauri/target/release/bundle/dmg/Messenger_${VERSION}_aarch64.dmg"
+BUNDLE_DIR="$PROJECT_DIR/src-tauri/target/release/bundle"
+DMG_PATH="$BUNDLE_DIR/dmg/Messenger_${VERSION}_aarch64.dmg"
+UPDATER_TAR="$BUNDLE_DIR/macos/Messenger.app.tar.gz"
+UPDATER_SIG="$BUNDLE_DIR/macos/Messenger.app.tar.gz.sig"
 
 if [ ! -f "$DMG_PATH" ]; then
   echo "Error: DMG not found at $DMG_PATH"
@@ -73,16 +87,46 @@ xcrun stapler staple "$DMG_PATH"
 echo "Verifying notarization..."
 spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true
 
+# Generate latest.json for the updater endpoint
+SIGNATURE=$(cat "$UPDATER_SIG")
+CURRENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+cat > "$BUNDLE_DIR/latest.json" << ENDJSON
+{
+  "version": "$VERSION",
+  "notes": "Update to v$VERSION",
+  "pub_date": "$CURRENT_DATE",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/vinhtnk/messenger/releases/download/v${VERSION}/Messenger.app.tar.gz",
+      "signature": "$SIGNATURE"
+    }
+  }
+}
+ENDJSON
+
+echo "Generated latest.json for auto-updater"
+
 # Git commit and tag
 echo "Committing version $VERSION..."
 git add -A
 git commit -m "$VERSION"
 git tag "v$VERSION"
 
+# Push to GitHub
+echo "Pushing to GitHub..."
+git push
+git push --tags
+
+# Create GitHub release with all artifacts
+echo "Creating GitHub release v$VERSION..."
+gh release create "v$VERSION" \
+  "$DMG_PATH" \
+  "$UPDATER_TAR" \
+  "$UPDATER_SIG" \
+  "$BUNDLE_DIR/latest.json" \
+  --title "v$VERSION" --notes-file CHANGELOG.md
+
 echo ""
-echo "Release v$VERSION built and notarized successfully!"
-echo "DMG: $DMG_PATH"
-echo ""
-echo "To publish:"
-echo "  git push && git push --tags"
-echo "  gh release create v$VERSION '$DMG_PATH' --title 'v$VERSION' --notes-file CHANGELOG.md"
+echo "Release v$VERSION published successfully!"
+echo "https://github.com/vinhtnk/messenger/releases/tag/v$VERSION"
