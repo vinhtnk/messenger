@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.21
+- Open non-Messenger links in external browser
+- Auto-generate changelog entries in release script
+
+
 ## v1.0.20
 - Fix login flow blocking on Facebook service domains (fbsbx.com)
 
