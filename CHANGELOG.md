@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.20
+- Fix login flow blocking on Facebook service domains (fbsbx.com)
+
+## v1.0.19
+- Allow full Facebook domain for login and 2FA flow
+
 ## v1.0.18
 - Migrate from Electron to Tauri for lightweight app (~10MB vs ~150MB)
 - Code signed and notarized with Apple Developer ID

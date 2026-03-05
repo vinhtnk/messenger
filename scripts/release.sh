@@ -64,6 +64,28 @@ else
   sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
   sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
   cd "$PROJECT_DIR"
+
+  # Auto-generate changelog entry from git commits since last tag
+  LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+  if [ -n "$LAST_TAG" ]; then
+    COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges | grep -v "Co-Authored-By" | grep -v "^- [0-9]*\.[0-9]*\.[0-9]*$")
+  else
+    COMMITS="- Initial release"
+  fi
+
+  if [ -n "$COMMITS" ]; then
+    # Prepend new version entry after "# Changelog" header
+    TMPFILE=$(mktemp)
+    echo "# Changelog" > "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    echo "## v${VERSION}" >> "$TMPFILE"
+    echo "$COMMITS" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    # Append everything after the first line of the original changelog
+    tail -n +2 CHANGELOG.md >> "$TMPFILE"
+    mv "$TMPFILE" CHANGELOG.md
+    echo "Updated CHANGELOG.md with v$VERSION"
+  fi
 fi
 
 # Build with Tauri (signing is automatic when APPLE_SIGNING_IDENTITY is set)
@@ -162,7 +184,7 @@ else
     "$UPDATER_SIG" \
     "$BUNDLE_DIR/latest.json" \
     "$BUNDLE_DIR/latest-mac.yml" \
-    --title "v$VERSION" --notes-file CHANGELOG.md
+    --title "v$VERSION" --notes "$(sed -n "/^## v$VERSION$/,/^## v/{/^## v$VERSION$/d;/^## v/d;p;}" CHANGELOG.md)"
 fi
 
 echo ""
