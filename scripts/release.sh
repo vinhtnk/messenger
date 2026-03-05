@@ -152,7 +152,7 @@ else
   # Push to GitHub
   echo "Pushing to GitHub..."
   git push
-  git push --tags
+  git push origin "v$VERSION"
 
   # Create GitHub release with all artifacts
   echo "Creating GitHub release v$VERSION..."

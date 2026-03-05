@@ -12,10 +12,15 @@ use tauri_plugin_updater::UpdaterExt;
 const MESSENGER_URL: &str = "https://www.facebook.com/messages";
 
 fn is_allowed_url(url: &str) -> bool {
-    url.starts_with("https://www.facebook.com/")
-        || url.starts_with("https://facebook.com/")
-        || url.starts_with("https://www.messenger.com/")
-        || url.starts_with("https://m.facebook.com/")
+    let allowed_domains = [
+        "https://www.facebook.com/",
+        "https://facebook.com/",
+        "https://www.messenger.com/",
+        "https://m.facebook.com/",
+        "https://www.fbsbx.com/",
+        "https://static.xx.fbcdn.net/",
+    ];
+    allowed_domains.iter().any(|domain| url.starts_with(domain))
 }
 
 fn main() {
