@@ -1,6 +1,6 @@
 {
   "name": "messenger",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Messenger desktop app for macOS",
   "scripts": {
     "tauri": "cargo tauri",
