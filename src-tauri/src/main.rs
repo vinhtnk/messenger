@@ -134,8 +134,35 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Messenger");
+        .build(tauri::generate_context!())
+        .expect("error while building Messenger")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    // Unminimize if minimized
+                    if let Ok(true) = window.is_minimized() {
+                        window.unminimize().unwrap_or_default();
+                    }
+                    // Show if hidden
+                    if let Ok(false) = window.is_visible() {
+                        window.show().unwrap_or_default();
+                    }
+                    window.set_focus().unwrap_or_default();
+                } else if !has_visible_windows {
+                    // Window was destroyed — recreate it
+                    let _ = WebviewWindowBuilder::new(
+                        app,
+                        "main",
+                        WebviewUrl::External(MESSENGER_URL.parse().unwrap()),
+                    )
+                    .title("Messenger")
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(400.0, 600.0)
+                    .build();
+                }
+            }
+        });
 }
 
 async fn check_for_updates(app: AppHandle) {
