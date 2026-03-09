@@ -17,7 +17,7 @@ else
 fi
 
 # Validate required env vars
-for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID GH_TOKEN; do
   if [ -z "${!var:-}" ]; then
     echo "Error: $var is not set in .env"
     exit 1
@@ -117,7 +117,7 @@ if [ "$REBUILD" = true ]; then
   [ -n "$ZIP_PATH" ] && UPLOAD_FILES+=("$ZIP_PATH")
   [ -f "$YML_PATH" ] && UPLOAD_FILES+=("$YML_PATH")
 
-  gh release upload "v$VERSION" "${UPLOAD_FILES[@]}" --clobber
+  GH_TOKEN="$GH_TOKEN" gh release upload "v$VERSION" "${UPLOAD_FILES[@]}" --clobber
 else
   # Git commit and tag
   echo "Committing version $VERSION..."
@@ -136,7 +136,7 @@ else
   [ -n "$ZIP_PATH" ] && UPLOAD_FILES+=("$ZIP_PATH")
   [ -f "$YML_PATH" ] && UPLOAD_FILES+=("$YML_PATH")
 
-  gh release create "v$VERSION" \
+  GH_TOKEN="$GH_TOKEN" gh release create "v$VERSION" \
     "${UPLOAD_FILES[@]}" \
     --title "v$VERSION" --notes "$(sed -n "/^## v$VERSION$/,/^## v/{/^## v$VERSION$/d;/^## v/d;p;}" CHANGELOG.md)"
 fi
