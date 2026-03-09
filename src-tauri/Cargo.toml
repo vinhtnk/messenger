@@ -1,6 +1,6 @@
 [package]
 name = "messenger"
-version = "1.0.22"
+version = "1.0.23"
 description = "Messenger desktop app for macOS"
 authors = ["Vinh Tran (VinhTNK)"]
 edition = "2021"

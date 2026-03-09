@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.23
+- Show window when dock icon clicked after hiding
+
+
 ## v1.0.22
 - Fix app freeze from blocking update dialog
 
