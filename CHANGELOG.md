@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.25
+- Fix app quit by registering before-quit handler earlier
+- Fix release script: use GH_TOKEN for gh commands
+
+
 ## v1.0.24
 - Migrate back to Electron from Tauri for better performance
 
