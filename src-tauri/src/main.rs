@@ -139,6 +139,9 @@ fn main() {
 }
 
 async fn check_for_updates(app: AppHandle) {
+    // Delay update check to avoid blocking app startup
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
     let updater = match app.updater() {
         Ok(updater) => updater,
         Err(e) => {
@@ -147,49 +150,70 @@ async fn check_for_updates(app: AppHandle) {
         }
     };
 
-    match updater.check().await {
-        Ok(Some(update)) => {
-            let version = update.version.clone();
-            let accepted = app
-                .dialog()
-                .message(format!(
-                    "A new version (v{}) is available. Would you like to download and install it?",
-                    version
-                ))
-                .title("Update Available")
-                .kind(MessageDialogKind::Info)
-                .buttons(MessageDialogButtons::OkCancelCustom("Download".into(), "Later".into()))
-                .blocking_show();
+    // Timeout the update check to avoid hanging
+    let check_result = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        updater.check(),
+    )
+    .await;
 
-            if !accepted {
-                return;
-            }
-
-            // Download and install the update
-            match update.download_and_install(|_, _| {}, || {}).await {
-                Ok(_) => {
-                    app.dialog()
-                        .message("Update installed successfully. The app will now restart.")
-                        .title("Update Complete")
-                        .kind(MessageDialogKind::Info)
-                        .blocking_show();
-                    app.restart();
-                }
-                Err(e) => {
-                    eprintln!("Failed to install update: {e}");
-                    app.dialog()
-                        .message(format!("Failed to install update: {e}"))
-                        .title("Update Error")
-                        .kind(MessageDialogKind::Error)
-                        .blocking_show();
-                }
-            }
+    let update = match check_result {
+        Ok(Ok(Some(update))) => update,
+        Ok(Ok(None)) => return,
+        Ok(Err(e)) => {
+            eprintln!("Update check failed: {e}");
+            return;
         }
-        Ok(None) => {
-            // No update available
+        Err(_) => {
+            eprintln!("Update check timed out");
+            return;
+        }
+    };
+
+    let version = update.version.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog()
+        .message(format!(
+            "A new version (v{}) is available. Would you like to download and install it?",
+            version
+        ))
+        .title("Update Available")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom("Download".into(), "Later".into()))
+        .show(move |accepted| {
+            let _ = tx.send(accepted);
+        });
+
+    // Wait for user response in async context without blocking UI
+    let accepted = tokio::task::spawn_blocking(move || rx.recv().unwrap_or(false))
+        .await
+        .unwrap_or(false);
+
+    if !accepted {
+        return;
+    }
+
+    match update.download_and_install(|_, _| {}, || {}).await {
+        Ok(_) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.dialog()
+                .message("Update installed successfully. The app will now restart.")
+                .title("Update Complete")
+                .kind(MessageDialogKind::Info)
+                .show(move |_| {
+                    let _ = tx.send(());
+                });
+            let _ = tokio::task::spawn_blocking(move || rx.recv()).await;
+            app.restart();
         }
         Err(e) => {
-            eprintln!("Update check failed: {e}");
+            eprintln!("Failed to install update: {e}");
+            app.dialog()
+                .message(format!("Failed to install update: {e}"))
+                .title("Update Error")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
         }
     }
 }
