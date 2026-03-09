@@ -6,3 +6,5 @@ out/
 npm-debug.log*
 .env
 .idea/
+.tauri_updater_key
+.tauri_updater_key.pub
