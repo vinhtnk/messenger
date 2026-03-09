@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.24
+- Migrate back to Electron from Tauri for better performance
+
+
 ## v1.0.23
 - Show window when dock icon clicked after hiding
 

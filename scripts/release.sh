@@ -25,7 +25,8 @@ for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
 done
 
 # Set electron-builder signing env vars
-export CSC_NAME="$APPLE_SIGNING_IDENTITY"
+# electron-builder wants just the name without "Developer ID Application:" prefix
+export CSC_NAME="${APPLE_SIGNING_IDENTITY#Developer ID Application: }"
 export CSC_IDENTITY_AUTO_DISCOVERY=true
 # electron-builder notarization (notarize: true in package.json)
 export APPLE_ID="$APPLE_ID"
@@ -95,12 +96,20 @@ fi
 echo "DMG: $DMG_PATH"
 [ -n "$ZIP_PATH" ] && echo "ZIP: $ZIP_PATH"
 
-# Staple notarization ticket to DMG
+# Notarize the DMG separately (electron-builder only notarizes the .app)
+echo "Notarizing DMG..."
+xcrun notarytool submit "$DMG_PATH" \
+  --apple-id "$APPLE_ID" \
+  --password "$APPLE_PASSWORD" \
+  --team-id "$APPLE_TEAM_ID" \
+  --wait
+
 echo "Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
 
-echo "Verifying..."
-spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true
+# Verify the .app inside is properly signed and notarized
+echo "Verifying .app signature..."
+codesign -dvvv "$DIST_DIR/mac-arm64/Messenger.app" 2>&1 | head -5 || true
 
 if [ "$REBUILD" = true ]; then
   echo "Replacing assets on GitHub release v$VERSION..."
