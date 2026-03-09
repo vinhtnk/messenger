@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.22
+- Fix app freeze from blocking update dialog
+
+
 ## v1.0.21
 - Open non-Messenger links in external browser
 - Auto-generate changelog entries in release script
