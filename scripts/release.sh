@@ -7,26 +7,12 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # Load .env file
 if [ -f "$PROJECT_DIR/.env" ]; then
   while IFS='=' read -r key value; do
-    # Skip empty lines and comments
     [[ -z "$key" || "$key" =~ ^# ]] && continue
-    # Trim whitespace
     key=$(echo "$key" | xargs)
-    # Export the variable (value can contain special chars)
     export "$key=$value"
   done < "$PROJECT_DIR/.env"
 else
   echo "Error: .env file not found"
-  exit 1
-fi
-
-# Set updater signing key
-UPDATER_KEY_PATH="$PROJECT_DIR/.tauri_updater_key"
-if [ -f "$UPDATER_KEY_PATH" ]; then
-  export TAURI_SIGNING_PRIVATE_KEY="$(cat "$UPDATER_KEY_PATH")"
-  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-else
-  echo "Error: Updater signing key not found at $UPDATER_KEY_PATH"
-  echo "Generate one with: cargo tauri signer generate -w $UPDATER_KEY_PATH"
   exit 1
 fi
 
@@ -37,6 +23,14 @@ for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
     exit 1
   fi
 done
+
+# Set electron-builder signing env vars
+export CSC_NAME="$APPLE_SIGNING_IDENTITY"
+export CSC_IDENTITY_AUTO_DISCOVERY=true
+# electron-builder notarization (notarize: true in package.json)
+export APPLE_ID="$APPLE_ID"
+export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_PASSWORD"
+export APPLE_TEAM_ID="$APPLE_TEAM_ID"
 
 # Determine version bump type or rebuild mode
 BUMP_TYPE="${1:-patch}"
@@ -59,12 +53,6 @@ else
   VERSION=$(node -p "require('./package.json').version")
   echo "Building version $VERSION"
 
-  # Sync version to tauri.conf.json and Cargo.toml
-  cd "$PROJECT_DIR/src-tauri"
-  sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
-  sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-  cd "$PROJECT_DIR"
-
   # Auto-generate changelog entry from git commits since last tag
   LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
   if [ -n "$LAST_TAG" ]; then
@@ -74,96 +62,53 @@ else
   fi
 
   if [ -n "$COMMITS" ]; then
-    # Prepend new version entry after "# Changelog" header
     TMPFILE=$(mktemp)
     echo "# Changelog" > "$TMPFILE"
     echo "" >> "$TMPFILE"
     echo "## v${VERSION}" >> "$TMPFILE"
     echo "$COMMITS" >> "$TMPFILE"
     echo "" >> "$TMPFILE"
-    # Append everything after the first line of the original changelog
     tail -n +2 CHANGELOG.md >> "$TMPFILE"
     mv "$TMPFILE" CHANGELOG.md
     echo "Updated CHANGELOG.md with v$VERSION"
   fi
 fi
 
-# Build with Tauri (signing is automatic when APPLE_SIGNING_IDENTITY is set)
-echo "Building and signing..."
-cargo tauri build
+# Clean previous build
+rm -rf "$PROJECT_DIR/dist"
 
-# Notarize the DMG
-BUNDLE_DIR="$PROJECT_DIR/src-tauri/target/release/bundle"
-DMG_PATH="$BUNDLE_DIR/dmg/Messenger_${VERSION}_aarch64.dmg"
-UPDATER_TAR="$BUNDLE_DIR/macos/Messenger.app.tar.gz"
-UPDATER_SIG="$BUNDLE_DIR/macos/Messenger.app.tar.gz.sig"
+# Build with electron-builder (signs + notarizes .app, creates DMG + ZIP)
+echo "Building, signing, and notarizing..."
+npx electron-builder --mac --publish never
 
-if [ ! -f "$DMG_PATH" ]; then
-  echo "Error: DMG not found at $DMG_PATH"
+# Find built artifacts
+DIST_DIR="$PROJECT_DIR/dist"
+DMG_PATH=$(find "$DIST_DIR" -name "*.dmg" -type f | head -1)
+ZIP_PATH=$(find "$DIST_DIR" -name "*.zip" -not -name "*.blockmap" -type f | head -1)
+YML_PATH="$DIST_DIR/latest-mac.yml"
+
+if [ -z "$DMG_PATH" ]; then
+  echo "Error: DMG not found in $DIST_DIR"
   exit 1
 fi
 
-echo "Notarizing $DMG_PATH..."
-xcrun notarytool submit "$DMG_PATH" \
-  --apple-id "$APPLE_ID" \
-  --password "$APPLE_PASSWORD" \
-  --team-id "$APPLE_TEAM_ID" \
-  --wait
+echo "DMG: $DMG_PATH"
+[ -n "$ZIP_PATH" ] && echo "ZIP: $ZIP_PATH"
 
-echo "Stapling notarization ticket..."
+# Staple notarization ticket to DMG
+echo "Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
 
-echo "Verifying notarization..."
+echo "Verifying..."
 spctl --assess --type open --context context:primary-signature -v "$DMG_PATH" 2>&1 || true
 
-# Generate latest.json for the updater endpoint
-SIGNATURE=$(cat "$UPDATER_SIG")
-CURRENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-cat > "$BUNDLE_DIR/latest.json" << ENDJSON
-{
-  "version": "$VERSION",
-  "notes": "Update to v$VERSION",
-  "pub_date": "$CURRENT_DATE",
-  "platforms": {
-    "darwin-aarch64": {
-      "url": "https://github.com/vinhtnk/messenger/releases/download/v${VERSION}/Messenger.app.tar.gz",
-      "signature": "$SIGNATURE"
-    }
-  }
-}
-ENDJSON
-
-echo "Generated latest.json for auto-updater"
-
-# Generate latest-mac.yml for old Electron app backward compatibility
-DMG_SHA512=$(shasum -a 512 "$DMG_PATH" | awk '{print $1}' | xxd -r -p | base64)
-DMG_SIZE=$(stat -f%z "$DMG_PATH")
-DMG_FILENAME="Messenger_${VERSION}_aarch64.dmg"
-
-cat > "$BUNDLE_DIR/latest-mac.yml" << ENDYML
-version: $VERSION
-files:
-  - url: $DMG_FILENAME
-    sha512: ${DMG_SHA512}
-    size: ${DMG_SIZE}
-path: $DMG_FILENAME
-sha512: ${DMG_SHA512}
-releaseDate: '${CURRENT_DATE}'
-ENDYML
-
-echo "Generated latest-mac.yml for Electron backward compatibility"
-
 if [ "$REBUILD" = true ]; then
-  # Replace assets on existing GitHub release
   echo "Replacing assets on GitHub release v$VERSION..."
-  gh release upload "v$VERSION" \
-    "$DMG_PATH" \
-    "$UPDATER_TAR" \
-    "$UPDATER_SIG" \
-    "$BUNDLE_DIR/latest.json" \
-    "$BUNDLE_DIR/latest-mac.yml" \
-    --clobber
+  UPLOAD_FILES=("$DMG_PATH")
+  [ -n "$ZIP_PATH" ] && UPLOAD_FILES+=("$ZIP_PATH")
+  [ -f "$YML_PATH" ] && UPLOAD_FILES+=("$YML_PATH")
+
+  gh release upload "v$VERSION" "${UPLOAD_FILES[@]}" --clobber
 else
   # Git commit and tag
   echo "Committing version $VERSION..."
@@ -178,12 +123,12 @@ else
 
   # Create GitHub release with all artifacts
   echo "Creating GitHub release v$VERSION..."
+  UPLOAD_FILES=("$DMG_PATH")
+  [ -n "$ZIP_PATH" ] && UPLOAD_FILES+=("$ZIP_PATH")
+  [ -f "$YML_PATH" ] && UPLOAD_FILES+=("$YML_PATH")
+
   gh release create "v$VERSION" \
-    "$DMG_PATH" \
-    "$UPDATER_TAR" \
-    "$UPDATER_SIG" \
-    "$BUNDLE_DIR/latest.json" \
-    "$BUNDLE_DIR/latest-mac.yml" \
+    "${UPLOAD_FILES[@]}" \
     --title "v$VERSION" --notes "$(sed -n "/^## v$VERSION$/,/^## v/{/^## v$VERSION$/d;/^## v/d;p;}" CHANGELOG.md)"
 fi
 
