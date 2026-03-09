@@ -277,6 +277,10 @@ autoUpdater.on('error', (err) => {
 // App lifecycle
 app.setName('Messenger');
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.whenReady().then(async () => {
   await migrateSession();
   createMenu();
@@ -301,8 +305,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
 });
