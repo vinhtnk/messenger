@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.26
+- Allow photo/video viewer to open in-app instead of browser
+
+
 ## v1.0.25
 - Fix app quit by registering before-quit handler earlier
 - Fix release script: use GH_TOKEN for gh commands
