@@ -142,7 +142,11 @@ function createWindow() {
 
         if (href.startsWith('https://www.facebook.com/messages') ||
             href.startsWith('https://facebook.com/messages') ||
-            href.startsWith('https://www.messenger.com/')) {
+            href.startsWith('https://www.messenger.com/') ||
+            href.startsWith('https://www.facebook.com/photo') ||
+            href.startsWith('https://www.facebook.com/messenger_media') ||
+            href.startsWith('https://www.facebook.com/reel') ||
+            href.startsWith('https://www.facebook.com/watch')) {
           return;
         }
 
