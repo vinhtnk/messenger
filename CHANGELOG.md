@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.6
+- Remove dock hide feature to avoid Electron duplicate-icon bug
+
+
 ## v1.1.5
 - Restore compact window header and add dock op settle delay
 
