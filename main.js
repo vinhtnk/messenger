@@ -645,6 +645,13 @@ function getSettings() {
   };
 }
 
+// Dock visibility is serialized through a Promise chain so we never call
+// dock.hide() before the previous dock.show() promise resolves. Calling them
+// in rapid succession is a known Electron bug (electron/electron#21810, wontfix)
+// that leaves persistent duplicate dock icons after the app quits.
+let dockOpQueue = Promise.resolve();
+let dockDesiredHidden = null;
+
 function syncDockVisibility() {
   if (process.platform !== 'darwin' || !app.dock) return;
   const hideDock = store.get('hideDockWithBubble', false);
@@ -664,10 +671,21 @@ function syncDockVisibility() {
     chatPanelWindow.isVisible()
   );
   const shouldHide = hideDock && bubbleVisible && !mainVisible && !chatVisible;
-  const currentlyHidden = !app.dock.isVisible();
-  if (shouldHide === currentlyHidden) return;
-  if (shouldHide) app.dock.hide();
-  else app.dock.show();
+  if (shouldHide === dockDesiredHidden) return;
+  dockDesiredHidden = shouldHide;
+
+  dockOpQueue = dockOpQueue.then(async () => {
+    if (shouldHide !== dockDesiredHidden) return; // intent changed mid-queue
+    const currentlyHidden = !app.dock.isVisible();
+    if (shouldHide === currentlyHidden) return;
+    if (shouldHide) {
+      app.dock.hide();
+    } else {
+      await app.dock.show();
+    }
+  }).catch((err) => {
+    console.error('Dock sync error:', err);
+  });
 }
 
 function notifySettingsChanged() {
@@ -834,13 +852,33 @@ async function promptRestartForUpdate(info) {
     cancelId: 1,
   });
   if (response === 0) {
-    isQuitting = true;
-    destroyBubbleWindow();
-    if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) {
-      app.dock.show().catch(() => {});
-    }
-    autoUpdater.quitAndInstall();
+    performUpdateRestart();
   }
+}
+
+function performUpdateRestart() {
+  isQuitting = true;
+
+  // Restore dock visibility so the new instance starts with the standard
+  // activation policy — hidden dock can leave a phantom icon behind.
+  if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) {
+    app.dock.show().catch(() => {});
+  }
+
+  // Force-close every window we own so quitAndInstall has nothing to wait on
+  // and the new instance doesn't launch alongside a lingering old process.
+  for (const win of [bubbleWindow, chatPanelWindow, settingsWindow, mainWindow]) {
+    if (win && !win.isDestroyed()) {
+      win.removeAllListeners('close');
+      win.destroy();
+    }
+  }
+  bubbleWindow = null;
+  chatPanelWindow = null;
+  settingsWindow = null;
+  mainWindow = null;
+
+  setTimeout(() => autoUpdater.quitAndInstall(), 150);
 }
 
 function checkForUpdates(manual = false) {
