@@ -292,9 +292,6 @@ function createWindow() {
     reportUnreadFromTitle(mainWindow.webContents, title);
   });
 
-  mainWindow.on('show', () => syncDockVisibility());
-  mainWindow.on('hide', () => syncDockVisibility());
-
   // Hide window instead of closing on macOS (unless quitting)
   mainWindow.on('close', (event) => {
     if (process.platform === 'darwin' && !isQuitting) {
@@ -476,7 +473,6 @@ function createChatPanel() {
 
   chatPanelWindow.on('closed', () => {
     chatPanelWindow = null;
-    syncDockVisibility();
   });
 }
 
@@ -523,7 +519,6 @@ function updateBubbleVisibility() {
     if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
       bubbleWindow.hide();
     }
-    syncDockVisibility();
     return;
   }
 
@@ -536,7 +531,6 @@ function updateBubbleVisibility() {
   } else {
     if (!bubbleWindow.isVisible()) bubbleWindow.showInactive();
   }
-  syncDockVisibility();
 }
 
 function toggleBubble() {
@@ -552,13 +546,11 @@ function showMainWindow() {
   hideChatPanel();
   if (!mainWindow) {
     createWindow();
-    syncDockVisibility();
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-  syncDockVisibility();
 }
 
 ipcMain.handle('bubble-get-position', (e) => {
@@ -642,56 +634,7 @@ ipcMain.on('bubble-context-menu', (e) => {
 function getSettings() {
   return {
     bubbleEnabled: store.get('bubbleEnabled', true),
-    hideDockWithBubble: store.get('hideDockWithBubble', false),
   };
-}
-
-// Dock visibility is serialized through a Promise chain so we never call
-// dock.hide() before the previous dock.show() promise resolves. Calling them
-// in rapid succession is a known Electron bug (electron/electron#21810, wontfix)
-// that leaves persistent duplicate dock icons after the app quits.
-let dockOpQueue = Promise.resolve();
-let dockDesiredHidden = null;
-
-function syncDockVisibility() {
-  if (process.platform !== 'darwin' || !app.dock) return;
-  const hideDock = store.get('hideDockWithBubble', false);
-  const bubbleVisible = !!(
-    bubbleWindow &&
-    !bubbleWindow.isDestroyed() &&
-    bubbleWindow.isVisible()
-  );
-  const mainVisible = !!(
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    mainWindow.isVisible()
-  );
-  const chatVisible = !!(
-    chatPanelWindow &&
-    !chatPanelWindow.isDestroyed() &&
-    chatPanelWindow.isVisible()
-  );
-  const shouldHide = hideDock && bubbleVisible && !mainVisible && !chatVisible;
-  if (shouldHide === dockDesiredHidden) return;
-  dockDesiredHidden = shouldHide;
-
-  dockOpQueue = dockOpQueue.then(async () => {
-    if (shouldHide !== dockDesiredHidden) return; // intent changed mid-queue
-    const currentlyHidden = !app.dock.isVisible();
-    if (shouldHide === currentlyHidden) return;
-    if (shouldHide) {
-      app.dock.hide();
-    } else {
-      await app.dock.show();
-    }
-    // The UIElement<->Foreground transformation is async on the OS side and
-    // calling hide() / show() before it settles is what causes the persistent
-    // duplicate-icon bug. Electron's own internal guard is ~1s, so wait it out
-    // before the queue can run another op.
-    await new Promise((r) => setTimeout(r, 1100));
-  }).catch((err) => {
-    console.error('Dock sync error:', err);
-  });
 }
 
 function notifySettingsChanged() {
@@ -707,11 +650,7 @@ function applySettings(next) {
       destroyBubbleWindow();
     }
   }
-  if (typeof next.hideDockWithBubble === 'boolean') {
-    store.set('hideDockWithBubble', next.hideDockWithBubble);
-  }
   updateBubbleVisibility();
-  syncDockVisibility();
   notifySettingsChanged();
 }
 
@@ -864,12 +803,6 @@ async function promptRestartForUpdate(info) {
 
 function performUpdateRestart() {
   isQuitting = true;
-
-  // Restore dock visibility so the new instance starts with the standard
-  // activation policy — hidden dock can leave a phantom icon behind.
-  if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) {
-    app.dock.show().catch(() => {});
-  }
 
   // Force-close every window we own so quitAndInstall has nothing to wait on
   // and the new instance doesn't launch alongside a lingering old process.
@@ -1028,7 +961,6 @@ app.whenReady().then(async () => {
   createWindow();
 
   updateBubbleVisibility();
-  syncDockVisibility();
 
   // Check for updates after 3s delay
   setTimeout(() => checkForUpdates(), 3000);

@@ -78,28 +78,15 @@
     <input type="checkbox" class="toggle" id="bubbleEnabled" />
   </div>
 
-  <div class="row">
-    <div class="info">
-      <label for="hideDockWithBubble">Hide dock icon while bubble is visible</label>
-      <div class="desc">Removes the Messenger icon from the Dock. Use the bubble or Cmd+Shift+B to bring the window back.</div>
-    </div>
-    <input type="checkbox" class="toggle" id="hideDockWithBubble" />
-  </div>
-
   <script>
     const bubbleEnabled = document.getElementById('bubbleEnabled');
-    const hideDockWithBubble = document.getElementById('hideDockWithBubble');
 
     function render(s) {
       bubbleEnabled.checked = !!s.bubbleEnabled;
-      hideDockWithBubble.checked = !!s.hideDockWithBubble;
     }
 
     bubbleEnabled.addEventListener('change', () => {
       window.settingsAPI.set({ bubbleEnabled: bubbleEnabled.checked });
-    });
-    hideDockWithBubble.addEventListener('change', () => {
-      window.settingsAPI.set({ hideDockWithBubble: hideDockWithBubble.checked });
     });
 
     window.settingsAPI.onUpdate(render);
