@@ -324,7 +324,6 @@ function createChatPanel() {
     skipTaskbar: true,
     alwaysOnTop: true,
     title: 'Messenger',
-    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, 'chat-panel-preload.js'),
       contextIsolation: true,
@@ -529,6 +528,10 @@ ipcMain.on('chat-panel-open-main', () => {
   showMainWindow();
 });
 
+ipcMain.on('main-header-open-compact', () => {
+  showChatPanel();
+});
+
 ipcMain.on('bubble-context-menu', (e) => {
   cancelPendingActivate();
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -677,6 +680,7 @@ function createMenu() {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
+        { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -740,6 +744,10 @@ async function promptRestartForUpdate(info) {
   });
   if (response === 0) {
     isQuitting = true;
+    destroyBubbleWindow();
+    if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) {
+      app.dock.show().catch(() => {});
+    }
     autoUpdater.quitAndInstall();
   }
 }
