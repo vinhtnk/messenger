@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0
+- Add quick chat panel and preferences
+- Add floating chat bubble and unread message indicators
+
+
 ## v1.0.26
 - Allow photo/video viewer to open in-app instead of browser
 
