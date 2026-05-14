@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
@@ -42,6 +42,32 @@ function shouldAllowNavigation(url) {
   return isAllowedUrl(url) || isFacebookDomain(url);
 }
 
+// Parse unread count from a Messenger/Facebook page title.
+// Returns the count, or null if the title isn't recognized so we don't
+// overwrite a real count with 0 during transient loads.
+function parseUnreadCount(title) {
+  if (!title) return null;
+  const match = title.match(/\((\d+)\+?\)/);
+  if (match) return parseInt(match[1], 10);
+  if (/messenger|facebook/i.test(title)) return 0;
+  return null;
+}
+
+function reportUnreadFromTitle(wc, title) {
+  const parsed = parseUnreadCount(title);
+  if (parsed === null) return;
+  unreadByWebContents.set(wc.id, parsed);
+  let count = 0;
+  for (const v of unreadByWebContents.values()) {
+    if (v > count) count = v;
+  }
+  lastBadgeCount = count;
+  if (app.setBadgeCount) app.setBadgeCount(count);
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.webContents.send('badge-update', count);
+  }
+}
+
 function isMessengerUrl(url) {
   return (
     url.startsWith('https://www.facebook.com/messages') ||
@@ -52,8 +78,15 @@ function isMessengerUrl(url) {
 
 let mainWindow;
 let bubbleWindow = null;
+let settingsWindow = null;
+let chatPanelWindow = null;
 let isQuitting = false;
 let lastBadgeCount = 0;
+const unreadByWebContents = new Map();
+
+const CHAT_PANEL_WIDTH = 400;
+const CHAT_PANEL_HEIGHT = 580;
+const BUBBLE_SIZE = 88;
 
 // One-time migration of cookies from default session to named persistent partition
 async function migrateSession() {
@@ -166,19 +199,12 @@ function createWindow() {
     `);
   });
 
-  // Update dock/taskbar badge with unread count parsed from the page title
-  // Messenger sets titles like "(3) Messenger" when there are unread messages
-  mainWindow.webContents.on('page-title-updated', (event, title) => {
-    const match = title.match(/^\((\d+)/);
-    const count = match ? parseInt(match[1], 10) : 0;
-    lastBadgeCount = count;
-    if (app.setBadgeCount) {
-      app.setBadgeCount(count);
-    }
-    if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-      bubbleWindow.webContents.send('badge-update', count);
-    }
+  mainWindow.webContents.on('page-title-updated', (_event, title) => {
+    reportUnreadFromTitle(mainWindow.webContents, title);
   });
+
+  mainWindow.on('show', () => syncDockVisibility());
+  mainWindow.on('hide', () => syncDockVisibility());
 
   // Hide window instead of closing on macOS (unless quitting)
   mainWindow.on('close', (event) => {
@@ -193,19 +219,31 @@ function createWindow() {
   });
 }
 
-function createBubbleWindow() {
-  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-    bubbleWindow.show();
-    return;
-  }
+function getDefaultBubblePosition() {
+  const padding = 50;
+  const display = screen.getPrimaryDisplay();
+  const work = display.workArea;
+  return {
+    x: work.x + work.width - BUBBLE_SIZE - padding,
+    y: work.y + padding,
+  };
+}
 
-  const saved = store.get('bubblePosition', { x: undefined, y: undefined });
+function createBubbleWindow() {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) return;
+
+  const saved = store.get('bubblePosition', null);
+  const pos =
+    saved && typeof saved.x === 'number' && typeof saved.y === 'number'
+      ? saved
+      : getDefaultBubblePosition();
 
   bubbleWindow = new BrowserWindow({
-    width: 88,
-    height: 88,
-    x: saved.x,
-    y: saved.y,
+    width: BUBBLE_SIZE,
+    height: BUBBLE_SIZE,
+    x: pos.x,
+    y: pos.y,
+    show: false,
     frame: false,
     transparent: true,
     resizable: false,
@@ -250,24 +288,185 @@ function destroyBubbleWindow() {
   bubbleWindow = null;
 }
 
-function toggleBubble() {
-  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-    destroyBubbleWindow();
-    store.set('bubbleEnabled', false);
+function getChatPanelBounds() {
+  const w = CHAT_PANEL_WIDTH;
+  const h = CHAT_PANEL_HEIGHT;
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+    return { width: w, height: h };
+  }
+  const [bx, by] = bubbleWindow.getPosition();
+  const display = screen.getDisplayNearestPoint({ x: bx, y: by });
+  const work = display.workArea;
+
+  let x = bx - w - 8;
+  if (x < work.x) x = bx + BUBBLE_SIZE + 8;
+  if (x + w > work.x + work.width) x = work.x + work.width - w - 8;
+
+  let y = by;
+  if (y + h > work.y + work.height) y = work.y + work.height - h - 8;
+  if (y < work.y) y = work.y + 8;
+
+  return { x, y, width: w, height: h };
+}
+
+function createChatPanel() {
+  if (chatPanelWindow && !chatPanelWindow.isDestroyed()) return;
+
+  chatPanelWindow = new BrowserWindow({
+    ...getChatPanelBounds(),
+    minWidth: 340,
+    minHeight: 480,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    title: 'Messenger',
+    titleBarStyle: 'hiddenInset',
+    webPreferences: {
+      preload: path.join(__dirname, 'chat-panel-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: 'persist:messenger',
+    },
+  });
+
+  chatPanelWindow.setAlwaysOnTop(true, 'floating');
+  chatPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  chatPanelWindow.loadURL(MESSENGER_URL);
+
+  chatPanelWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isMessengerUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  chatPanelWindow.webContents.on('will-navigate', (event, url) => {
+    if (
+      url.startsWith('https://www.facebook.com/messenger_media') ||
+      url.startsWith('https://www.facebook.com/photo') ||
+      url.startsWith('https://www.facebook.com/reel') ||
+      url.startsWith('https://www.facebook.com/watch')
+    ) {
+      event.preventDefault();
+      return;
+    }
+    if (!shouldAllowNavigation(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+
+  const panelWcId = chatPanelWindow.webContents.id;
+  chatPanelWindow.webContents.on('page-title-updated', (_event, title) => {
+    reportUnreadFromTitle(chatPanelWindow.webContents, title);
+  });
+  chatPanelWindow.once('closed', () => {
+    unreadByWebContents.delete(panelWcId);
+  });
+
+  chatPanelWindow.on('show', () => {
+    cancelPendingBubbleShow();
+    updateBubbleVisibility();
+  });
+  chatPanelWindow.on('hide', () => {
+    updateBubbleVisibility();
+  });
+
+  chatPanelWindow.on('close', (e) => {
+    if (!isQuitting && chatPanelWindow) {
+      e.preventDefault();
+      chatPanelWindow.hide();
+    }
+  });
+
+  chatPanelWindow.on('closed', () => {
+    chatPanelWindow = null;
+    syncDockVisibility();
+  });
+}
+
+function showChatPanel() {
+  cancelPendingBubbleShow();
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    mainWindow.hide();
+  }
+  if (!chatPanelWindow || chatPanelWindow.isDestroyed()) {
+    createChatPanel();
   } else {
-    createBubbleWindow();
-    store.set('bubbleEnabled', true);
+    chatPanelWindow.setBounds(getChatPanelBounds());
+    chatPanelWindow.show();
+  }
+  chatPanelWindow.focus();
+  updateBubbleVisibility();
+}
+
+function hideChatPanel() {
+  if (chatPanelWindow && !chatPanelWindow.isDestroyed()) {
+    chatPanelWindow.hide();
   }
 }
 
+function toggleChatPanel() {
+  const visible =
+    chatPanelWindow && !chatPanelWindow.isDestroyed() && chatPanelWindow.isVisible();
+  if (visible) hideChatPanel();
+  else showChatPanel();
+}
+
+function shouldHideBubbleForFocus() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (!focused) return false;
+  if (focused === mainWindow) return true;
+  if (focused === settingsWindow) return true;
+  return false;
+}
+
+function updateBubbleVisibility() {
+  const enabled = store.get('bubbleEnabled', true);
+
+  if (!enabled) {
+    if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
+      bubbleWindow.hide();
+    }
+    syncDockVisibility();
+    return;
+  }
+
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+    createBubbleWindow();
+  }
+
+  if (shouldHideBubbleForFocus()) {
+    if (bubbleWindow.isVisible()) bubbleWindow.hide();
+  } else {
+    if (!bubbleWindow.isVisible()) bubbleWindow.showInactive();
+  }
+  syncDockVisibility();
+}
+
+function toggleBubble() {
+  const enabled = store.get('bubbleEnabled', true);
+  applySettings({ bubbleEnabled: !enabled });
+}
+
 function showMainWindow() {
+  cancelPendingBubbleShow();
+  if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
+    bubbleWindow.hide();
+  }
+  hideChatPanel();
   if (!mainWindow) {
     createWindow();
+    syncDockVisibility();
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+  syncDockVisibility();
 }
 
 ipcMain.handle('bubble-get-position', (e) => {
@@ -275,35 +474,151 @@ ipcMain.handle('bubble-get-position', (e) => {
   return win ? win.getPosition() : [0, 0];
 });
 
+let dragPanelOffset = null;
+let dragResetTimer = null;
+
 ipcMain.on('bubble-set-position', (e, x, y) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (win && !win.isDestroyed()) {
-    win.setPosition(Math.round(x), Math.round(y));
+  if (!win || win.isDestroyed()) return;
+
+  const panelFollowing =
+    chatPanelWindow && !chatPanelWindow.isDestroyed() && chatPanelWindow.isVisible();
+
+  if (panelFollowing && !dragPanelOffset) {
+    const [bx, by] = win.getPosition();
+    const [px, py] = chatPanelWindow.getPosition();
+    dragPanelOffset = { x: px - bx, y: py - by };
   }
+
+  const nx = Math.round(x);
+  const ny = Math.round(y);
+  win.setPosition(nx, ny);
+
+  if (panelFollowing && dragPanelOffset) {
+    chatPanelWindow.setPosition(nx + dragPanelOffset.x, ny + dragPanelOffset.y);
+  }
+
+  if (dragResetTimer) clearTimeout(dragResetTimer);
+  dragResetTimer = setTimeout(() => {
+    dragPanelOffset = null;
+    dragResetTimer = null;
+  }, 200);
 });
 
 ipcMain.on('bubble-toggle-chat', () => {
-  if (!mainWindow) {
-    createWindow();
-    return;
-  }
-  if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    mainWindow.hide();
-  } else {
-    showMainWindow();
-  }
+  toggleChatPanel();
+});
+
+ipcMain.on('bubble-hide', () => {
+  applySettings({ bubbleEnabled: false });
+});
+
+ipcMain.on('chat-panel-open-main', () => {
+  showMainWindow();
 });
 
 ipcMain.on('bubble-context-menu', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win) return;
   const menu = Menu.buildFromTemplate([
-    { label: 'Open Messenger', click: () => showMainWindow() },
+    { label: 'Quick Chat', click: () => showChatPanel() },
+    { label: 'Open Full Messenger', click: () => showMainWindow() },
+    { type: 'separator' },
     { label: 'Hide Bubble', click: () => toggleBubble() },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
   ]);
   menu.popup({ window: win });
+});
+
+function getSettings() {
+  return {
+    bubbleEnabled: store.get('bubbleEnabled', true),
+    hideDockWithBubble: store.get('hideDockWithBubble', false),
+  };
+}
+
+function syncDockVisibility() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  const hideDock = store.get('hideDockWithBubble', false);
+  const bubbleVisible = !!(
+    bubbleWindow &&
+    !bubbleWindow.isDestroyed() &&
+    bubbleWindow.isVisible()
+  );
+  const mainVisible = !!(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.isVisible()
+  );
+  const chatVisible = !!(
+    chatPanelWindow &&
+    !chatPanelWindow.isDestroyed() &&
+    chatPanelWindow.isVisible()
+  );
+  const shouldHide = hideDock && bubbleVisible && !mainVisible && !chatVisible;
+  const currentlyHidden = !app.dock.isVisible();
+  if (shouldHide === currentlyHidden) return;
+  if (shouldHide) app.dock.hide();
+  else app.dock.show();
+}
+
+function notifySettingsChanged() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('settings-update', getSettings());
+  }
+}
+
+function applySettings(next) {
+  if (typeof next.bubbleEnabled === 'boolean') {
+    store.set('bubbleEnabled', next.bubbleEnabled);
+    if (!next.bubbleEnabled) {
+      destroyBubbleWindow();
+    }
+  }
+  if (typeof next.hideDockWithBubble === 'boolean') {
+    store.set('hideDockWithBubble', next.hideDockWithBubble);
+  }
+  updateBubbleVisibility();
+  syncDockVisibility();
+  notifySettingsChanged();
+}
+
+function openSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 420,
+    height: 260,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: 'Preferences',
+    parent: mainWindow || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'settings-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  settingsWindow.setMenuBarVisibility(false);
+  settingsWindow.loadFile('settings.html');
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+}
+
+ipcMain.handle('settings-get', () => getSettings());
+
+ipcMain.on('settings-set', (_e, next) => {
+  applySettings(next || {});
 });
 
 function createMenu() {
@@ -315,6 +630,12 @@ function createMenu() {
         {
           label: 'Check for Updates...',
           click: () => checkForUpdates(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Preferences...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => openSettingsWindow(),
         },
         { type: 'separator' },
         { role: 'services' },
@@ -427,14 +748,41 @@ app.on('before-quit', () => {
   isQuitting = true;
 });
 
+let pendingBubbleShowTimer = null;
+
+function cancelPendingBubbleShow() {
+  if (pendingBubbleShowTimer) {
+    clearTimeout(pendingBubbleShowTimer);
+    pendingBubbleShowTimer = null;
+  }
+}
+
+function isBubbleEvent(window) {
+  return window && bubbleWindow && window === bubbleWindow;
+}
+
+app.on('browser-window-focus', (_event, window) => {
+  if (isBubbleEvent(window)) return;
+  cancelPendingBubbleShow();
+  updateBubbleVisibility();
+});
+
+app.on('browser-window-blur', (_event, window) => {
+  if (isBubbleEvent(window)) return;
+  cancelPendingBubbleShow();
+  pendingBubbleShowTimer = setTimeout(() => {
+    pendingBubbleShowTimer = null;
+    updateBubbleVisibility();
+  }, 200);
+});
+
 app.whenReady().then(async () => {
   await migrateSession();
   createMenu();
   createWindow();
 
-  if (store.get('bubbleEnabled', true)) {
-    createBubbleWindow();
-  }
+  updateBubbleVisibility();
+  syncDockVisibility();
 
   // Check for updates after 3s delay
   setTimeout(() => checkForUpdates(), 3000);

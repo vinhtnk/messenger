@@ -50,9 +50,40 @@
     text-align: center;
     border: 2px solid white;
     box-sizing: content-box;
-    display: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
   }
-  #badge.visible { display: block; }
+  #badge.visible { opacity: 1; }
+  body:hover #badge.visible { opacity: 0; }
+  #close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(40, 40, 40, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.5);
+    transform-origin: center;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    pointer-events: none;
+    border: 1.5px solid white;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  body:hover #close {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+  }
+  #close:hover { background: #000; }
+  #close svg { display: block; }
 </style>
 </head>
 <body>
@@ -61,6 +92,11 @@
       <path d="M18 2C9.163 2 2 8.5 2 16.5c0 4.42 2.21 8.36 5.69 11l-.01 4.94 4.7-2.58c1.74.48 3.6.74 5.62.74 8.837 0 16-6.5 16-14.6S26.837 2 18 2zm1.6 19.6l-4.1-4.37-7.95 4.37 8.74-9.27 4.2 4.37 7.85-4.37-8.74 9.27z"/>
     </svg>
     <div id="badge">0</div>
+  </div>
+  <div id="close" title="Hide bubble">
+    <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
+      <path d="M2 2L8 8M8 2L2 8" stroke="white" stroke-width="1.6" stroke-linecap="round" fill="none" />
+    </svg>
   </div>
   <script>
     const bubble = document.getElementById('bubble');
@@ -104,6 +140,13 @@
     bubble.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       window.bubbleAPI.showContextMenu();
+    });
+
+    const closeBtn = document.getElementById('close');
+    closeBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.bubbleAPI.hideBubble();
     });
 
     window.bubbleAPI.onBadgeUpdate((count) => {

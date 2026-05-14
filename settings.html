@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Preferences</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  body { padding: 22px 26px; }
+  h2 {
+    font-size: 14px;
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #e5e5e7;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .info { flex: 1; padding-right: 14px; }
+  .row label {
+    font-size: 13px;
+    font-weight: 500;
+    display: block;
+  }
+  .row .desc {
+    color: #6e6e73;
+    font-size: 12px;
+    margin-top: 3px;
+    line-height: 1.35;
+  }
+  .toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 42px;
+    height: 24px;
+    background: #d1d1d6;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+    margin: 0;
+  }
+  .toggle:checked { background: #34c759; }
+  .toggle::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+  .toggle:checked::before { left: 20px; }
+</style>
+</head>
+<body>
+  <h2>Preferences</h2>
+
+  <div class="row">
+    <div class="info">
+      <label for="bubbleEnabled">Show floating bubble</label>
+      <div class="desc">Small always-on-top bubble for quick access from other apps</div>
+    </div>
+    <input type="checkbox" class="toggle" id="bubbleEnabled" />
+  </div>
+
+  <div class="row">
+    <div class="info">
+      <label for="hideDockWithBubble">Hide dock icon while bubble is visible</label>
+      <div class="desc">Removes the Messenger icon from the Dock. Use the bubble or Cmd+Shift+B to bring the window back.</div>
+    </div>
+    <input type="checkbox" class="toggle" id="hideDockWithBubble" />
+  </div>
+
+  <script>
+    const bubbleEnabled = document.getElementById('bubbleEnabled');
+    const hideDockWithBubble = document.getElementById('hideDockWithBubble');
+
+    function render(s) {
+      bubbleEnabled.checked = !!s.bubbleEnabled;
+      hideDockWithBubble.checked = !!s.hideDockWithBubble;
+    }
+
+    bubbleEnabled.addEventListener('change', () => {
+      window.settingsAPI.set({ bubbleEnabled: bubbleEnabled.checked });
+    });
+    hideDockWithBubble.addEventListener('change', () => {
+      window.settingsAPI.set({ hideDockWithBubble: hideDockWithBubble.checked });
+    });
+
+    window.settingsAPI.onUpdate(render);
+    window.settingsAPI.get().then(render);
+  </script>
+</body>
+</html>
