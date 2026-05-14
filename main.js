@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog, session } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
@@ -51,7 +51,9 @@ function isMessengerUrl(url) {
 }
 
 let mainWindow;
+let bubbleWindow = null;
 let isQuitting = false;
+let lastBadgeCount = 0;
 
 // One-time migration of cookies from default session to named persistent partition
 async function migrateSession() {
@@ -124,6 +126,15 @@ function createWindow() {
 
   // Handle navigation to external sites
   mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Block Facebook media/photo URLs - these should use the in-page overlay
+    if (url.startsWith('https://www.facebook.com/messenger_media') ||
+        url.startsWith('https://www.facebook.com/photo') ||
+        url.startsWith('https://www.facebook.com/reel') ||
+        url.startsWith('https://www.facebook.com/watch')) {
+      event.preventDefault();
+      return;
+    }
+
     if (!shouldAllowNavigation(url)) {
       event.preventDefault();
       shell.openExternal(url);
@@ -143,10 +154,8 @@ function createWindow() {
         if (href.startsWith('https://www.facebook.com/messages') ||
             href.startsWith('https://facebook.com/messages') ||
             href.startsWith('https://www.messenger.com/') ||
-            href.startsWith('https://www.facebook.com/photo') ||
             href.startsWith('https://www.facebook.com/messenger_media') ||
-            href.startsWith('https://www.facebook.com/reel') ||
-            href.startsWith('https://www.facebook.com/watch')) {
+            href.startsWith('https://www.facebook.com/photo')) {
           return;
         }
 
@@ -155,6 +164,20 @@ function createWindow() {
         window.open(href, '_blank');
       }, true);
     `);
+  });
+
+  // Update dock/taskbar badge with unread count parsed from the page title
+  // Messenger sets titles like "(3) Messenger" when there are unread messages
+  mainWindow.webContents.on('page-title-updated', (event, title) => {
+    const match = title.match(/^\((\d+)/);
+    const count = match ? parseInt(match[1], 10) : 0;
+    lastBadgeCount = count;
+    if (app.setBadgeCount) {
+      app.setBadgeCount(count);
+    }
+    if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+      bubbleWindow.webContents.send('badge-update', count);
+    }
   });
 
   // Hide window instead of closing on macOS (unless quitting)
@@ -169,6 +192,119 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+function createBubbleWindow() {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.show();
+    return;
+  }
+
+  const saved = store.get('bubblePosition', { x: undefined, y: undefined });
+
+  bubbleWindow = new BrowserWindow({
+    width: 88,
+    height: 88,
+    x: saved.x,
+    y: saved.y,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    focusable: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'bubble-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  bubbleWindow.setAlwaysOnTop(true, 'floating');
+  bubbleWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  bubbleWindow.loadFile('bubble.html');
+
+  bubbleWindow.webContents.once('did-finish-load', () => {
+    bubbleWindow.webContents.send('badge-update', lastBadgeCount);
+  });
+
+  bubbleWindow.on('move', () => {
+    if (!bubbleWindow || bubbleWindow.isDestroyed()) return;
+    const [x, y] = bubbleWindow.getPosition();
+    store.set('bubblePosition', { x, y });
+  });
+
+  bubbleWindow.on('closed', () => {
+    bubbleWindow = null;
+  });
+}
+
+function destroyBubbleWindow() {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.close();
+  }
+  bubbleWindow = null;
+}
+
+function toggleBubble() {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    destroyBubbleWindow();
+    store.set('bubbleEnabled', false);
+  } else {
+    createBubbleWindow();
+    store.set('bubbleEnabled', true);
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+ipcMain.handle('bubble-get-position', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  return win ? win.getPosition() : [0, 0];
+});
+
+ipcMain.on('bubble-set-position', (e, x, y) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win && !win.isDestroyed()) {
+    win.setPosition(Math.round(x), Math.round(y));
+  }
+});
+
+ipcMain.on('bubble-toggle-chat', () => {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isVisible() && mainWindow.isFocused()) {
+    mainWindow.hide();
+  } else {
+    showMainWindow();
+  }
+});
+
+ipcMain.on('bubble-context-menu', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  const menu = Menu.buildFromTemplate([
+    { label: 'Open Messenger', click: () => showMainWindow() },
+    { label: 'Hide Bubble', click: () => toggleBubble() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+  ]);
+  menu.popup({ window: win });
+});
 
 function createMenu() {
   const template = [
@@ -227,6 +363,12 @@ function createMenu() {
         },
         { role: 'minimize' },
         { role: 'zoom' },
+        { type: 'separator' },
+        {
+          label: 'Toggle Floating Bubble',
+          accelerator: 'CmdOrCtrl+Shift+B',
+          click: () => toggleBubble(),
+        },
         { type: 'separator' },
         { role: 'front' },
       ],
@@ -289,6 +431,10 @@ app.whenReady().then(async () => {
   await migrateSession();
   createMenu();
   createWindow();
+
+  if (store.get('bubbleEnabled', true)) {
+    createBubbleWindow();
+  }
 
   // Check for updates after 3s delay
   setTimeout(() => checkForUpdates(), 3000);

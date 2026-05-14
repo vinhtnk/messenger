@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: pointer;
+  }
+  #bubble {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #0084ff 0%, #44bec7 50%, #a06cd5 100%);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.12s ease;
+  }
+  #bubble:hover { transform: scale(1.06); }
+  #bubble.pressed { transform: scale(0.94); }
+  #icon {
+    width: 32px;
+    height: 32px;
+    fill: white;
+  }
+  #badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 14px;
+    height: 18px;
+    padding: 0 5px;
+    background: #fa3e3e;
+    color: white;
+    font: 600 11px -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 18px;
+    border-radius: 10px;
+    text-align: center;
+    border: 2px solid white;
+    box-sizing: content-box;
+    display: none;
+  }
+  #badge.visible { display: block; }
+</style>
+</head>
+<body>
+  <div id="bubble">
+    <svg id="icon" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 2C9.163 2 2 8.5 2 16.5c0 4.42 2.21 8.36 5.69 11l-.01 4.94 4.7-2.58c1.74.48 3.6.74 5.62.74 8.837 0 16-6.5 16-14.6S26.837 2 18 2zm1.6 19.6l-4.1-4.37-7.95 4.37 8.74-9.27 4.2 4.37 7.85-4.37-8.74 9.27z"/>
+    </svg>
+    <div id="badge">0</div>
+  </div>
+  <script>
+    const bubble = document.getElementById('bubble');
+    const badge = document.getElementById('badge');
+
+    let drag = null;
+
+    bubble.addEventListener('mousedown', async (e) => {
+      if (e.button !== 0) return;
+      bubble.classList.add('pressed');
+      const pos = await window.bubbleAPI.getPosition();
+      drag = {
+        startX: e.screenX,
+        startY: e.screenY,
+        winX: pos[0],
+        winY: pos[1],
+        moved: false,
+      };
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!drag) return;
+      const dx = e.screenX - drag.startX;
+      const dy = e.screenY - drag.startY;
+      if (!drag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+        drag.moved = true;
+      }
+      if (drag.moved) {
+        window.bubbleAPI.setPosition(drag.winX + dx, drag.winY + dy);
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      bubble.classList.remove('pressed');
+      if (drag && !drag.moved && e.button === 0) {
+        window.bubbleAPI.toggleChat();
+      }
+      drag = null;
+    });
+
+    bubble.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      window.bubbleAPI.showContextMenu();
+    });
+
+    window.bubbleAPI.onBadgeUpdate((count) => {
+      if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.classList.add('visible');
+      } else {
+        badge.classList.remove('visible');
+      }
+    });
+  </script>
+</body>
+</html>
