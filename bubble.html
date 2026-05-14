@@ -104,21 +104,32 @@
 
     let drag = null;
 
-    bubble.addEventListener('mousedown', async (e) => {
+    bubble.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       bubble.classList.add('pressed');
-      const pos = await window.bubbleAPI.getPosition();
       drag = {
         startX: e.screenX,
         startY: e.screenY,
-        winX: pos[0],
-        winY: pos[1],
+        winX: null,
+        winY: null,
         moved: false,
       };
+      window.bubbleAPI.getPosition().then((pos) => {
+        if (drag) {
+          drag.winX = pos[0];
+          drag.winY = pos[1];
+        }
+      });
     });
 
     window.addEventListener('mousemove', (e) => {
       if (!drag) return;
+      if (e.buttons === 0) {
+        drag = null;
+        bubble.classList.remove('pressed');
+        return;
+      }
+      if (drag.winX === null) return;
       const dx = e.screenX - drag.startX;
       const dy = e.screenY - drag.startY;
       if (!drag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {

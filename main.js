@@ -252,7 +252,8 @@ function createBubbleWindow() {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
-    focusable: false,
+    type: 'panel',
+    acceptFirstMouse: true,
     alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, 'bubble-preload.js'),
@@ -505,11 +506,22 @@ ipcMain.on('bubble-set-position', (e, x, y) => {
   }, 200);
 });
 
+let pendingActivateTimer = null;
+
+function cancelPendingActivate() {
+  if (pendingActivateTimer) {
+    clearTimeout(pendingActivateTimer);
+    pendingActivateTimer = null;
+  }
+}
+
 ipcMain.on('bubble-toggle-chat', () => {
+  cancelPendingActivate();
   toggleChatPanel();
 });
 
 ipcMain.on('bubble-hide', () => {
+  cancelPendingActivate();
   applySettings({ bubbleEnabled: false });
 });
 
@@ -518,6 +530,7 @@ ipcMain.on('chat-panel-open-main', () => {
 });
 
 ipcMain.on('bubble-context-menu', (e) => {
+  cancelPendingActivate();
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win) return;
   const menu = Menu.buildFromTemplate([
@@ -788,15 +801,21 @@ app.whenReady().then(async () => {
   setTimeout(() => checkForUpdates(), 3000);
 });
 
-// macOS: show/unminimize window on dock icon click
+// macOS: show/unminimize window on dock icon click.
+// Clicking the bubble also fires `activate`; defer the main-window pop so a
+// bubble IPC arriving moments later can cancel it.
 app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow();
-  } else {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  }
+  cancelPendingActivate();
+  pendingActivateTimer = setTimeout(() => {
+    pendingActivateTimer = null;
+    if (mainWindow === null) {
+      createWindow();
+    } else {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 120);
 });
 
 app.on('window-all-closed', () => {
