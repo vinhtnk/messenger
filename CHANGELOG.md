@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.5
+- Restore compact window header and add dock op settle delay
+
+
 ## v1.1.4
 - Serialize dock visibility changes to avoid Electron race
 
