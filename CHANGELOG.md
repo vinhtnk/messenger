@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.2
+- Improve auto-updater UX
+
+
 ## v1.1.1
 - Fix bubble click opening main window when switching apps
 
