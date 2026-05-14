@@ -1,7 +1,8 @@
-const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain, screen, clipboard } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
+const fs = require('fs');
 
 const store = new Store();
 
@@ -113,6 +114,92 @@ async function migrateSession() {
   store.set('sessionMigrated', true);
 }
 
+function uniqueDownloadPath(filename) {
+  const dir = app.getPath('downloads');
+  const ext = path.extname(filename) || '';
+  const base = path.basename(filename, ext) || 'image';
+  let candidate = path.join(dir, `${base}${ext}`);
+  let n = 1;
+  while (fs.existsSync(candidate) && n < 1000) {
+    candidate = path.join(dir, `${base} (${n})${ext}`);
+    n++;
+  }
+  return candidate;
+}
+
+function setupDownloads(targetSession) {
+  if (targetSession.__msgrDownloadsWired) return;
+  targetSession.__msgrDownloadsWired = true;
+
+  targetSession.on('will-download', (_event, item) => {
+    const savePath = uniqueDownloadPath(item.getFilename());
+    item.setSavePath(savePath);
+
+    item.once('done', (_e, state) => {
+      if (state === 'completed') {
+        shell.showItemInFolder(savePath);
+      } else {
+        console.error('Download failed:', state, savePath);
+      }
+    });
+  });
+}
+
+function setupContextMenu(win) {
+  win.webContents.on('context-menu', (_event, params) => {
+    const items = [];
+
+    if (params.hasImageContents && params.srcURL) {
+      items.push(
+        {
+          label: 'Save Image',
+          click: () => win.webContents.downloadURL(params.srcURL),
+        },
+        {
+          label: 'Copy Image',
+          click: () => win.webContents.copyImageAt(params.x, params.y),
+        },
+        {
+          label: 'Copy Image Address',
+          click: () => clipboard.writeText(params.srcURL),
+        },
+      );
+    }
+
+    if (params.linkURL && !params.hasImageContents) {
+      if (items.length) items.push({ type: 'separator' });
+      items.push(
+        {
+          label: 'Copy Link',
+          click: () => clipboard.writeText(params.linkURL),
+        },
+        {
+          label: 'Open Link in Browser',
+          click: () => shell.openExternal(params.linkURL),
+        },
+      );
+    }
+
+    if (params.selectionText && params.selectionText.trim()) {
+      if (items.length) items.push({ type: 'separator' });
+      items.push({ role: 'copy' });
+    }
+
+    if (params.isEditable) {
+      if (items.length) items.push({ type: 'separator' });
+      items.push(
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      );
+    }
+
+    if (items.length === 0) return;
+    Menu.buildFromTemplate(items).popup({ window: win });
+  });
+}
+
 function createWindow() {
   const windowBounds = store.get('windowBounds', {
     width: 1200,
@@ -148,6 +235,8 @@ function createWindow() {
   });
 
   mainWindow.loadURL(MESSENGER_URL);
+
+  setupContextMenu(mainWindow);
 
   // Handle new window requests (target="_blank" links)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -336,6 +425,8 @@ function createChatPanel() {
   chatPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   chatPanelWindow.loadURL(MESSENGER_URL);
+
+  setupContextMenu(chatPanelWindow);
 
   chatPanelWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!isMessengerUrl(url)) shell.openExternal(url);
@@ -888,6 +979,7 @@ app.on('browser-window-blur', (_event, window) => {
 
 app.whenReady().then(async () => {
   await migrateSession();
+  setupDownloads(session.fromPartition('persist:messenger'));
   createMenu();
   createWindow();
 
