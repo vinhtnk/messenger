@@ -33,18 +33,52 @@ export APPLE_ID="$APPLE_ID"
 export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_PASSWORD"
 export APPLE_TEAM_ID="$APPLE_TEAM_ID"
 
+cd "$PROJECT_DIR"
+
 # Determine version bump type or rebuild mode
-BUMP_TYPE="${1:-patch}"
+BUMP_TYPE="${1:-}"
 REBUILD=false
 
 if [[ "$BUMP_TYPE" == "--rebuild" ]]; then
   REBUILD=true
+elif [[ -z "$BUMP_TYPE" ]]; then
+  echo ""
+  echo "Select version bump:"
+  echo "  1) major"
+  echo "  2) minor"
+  echo "  3) patch"
+  echo ""
+  read -r -p "Choice (1-3): " choice
+  case "$choice" in
+    1) BUMP_TYPE="major" ;;
+    2) BUMP_TYPE="minor" ;;
+    3) BUMP_TYPE="patch" ;;
+    *) echo "Invalid choice: $choice"; exit 1 ;;
+  esac
+
+  CURRENT_VERSION=$(node -p "require('./package.json').version")
+  NEXT_VERSION=$(BUMP_TYPE="$BUMP_TYPE" node -e "
+    const v = require('./package.json').version.split('.').map(Number);
+    const t = process.env.BUMP_TYPE;
+    if (t === 'major') { v[0]++; v[1] = 0; v[2] = 0; }
+    else if (t === 'minor') { v[1]++; v[2] = 0; }
+    else { v[2]++; }
+    console.log(v.join('.'));
+  ")
+
+  echo ""
+  echo "  Current: v${CURRENT_VERSION}"
+  echo "  Next:    v${NEXT_VERSION} ($BUMP_TYPE)"
+  echo ""
+  read -r -p "Proceed with release? (Y/n): " confirm
+  if [[ "$confirm" =~ ^[Nn] ]]; then
+    echo "Aborted."
+    exit 0
+  fi
 elif [[ ! "$BUMP_TYPE" =~ ^(patch|minor|major)$ ]]; then
   echo "Usage: $0 [patch|minor|major|--rebuild]"
   exit 1
 fi
-
-cd "$PROJECT_DIR"
 
 if [ "$REBUILD" = true ]; then
   VERSION=$(node -p "require('./package.json').version")
