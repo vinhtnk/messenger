@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.4
+- Serialize dock visibility changes to avoid Electron race
+
+
 ## v1.1.3
 - Make release script interactive with confirmation prompt
 - Support saving images from Messenger chat via right-click
