@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.1
+- Fix bubble click opening main window when switching apps
+
+
 ## v1.1.0
 - Add quick chat panel and preferences
 - Add floating chat bubble and unread message indicators
