@@ -413,6 +413,7 @@ function createChatPanel() {
     skipTaskbar: true,
     alwaysOnTop: true,
     title: 'Messenger',
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, 'chat-panel-preload.js'),
       contextIsolation: true,
@@ -683,6 +684,11 @@ function syncDockVisibility() {
     } else {
       await app.dock.show();
     }
+    // The UIElement<->Foreground transformation is async on the OS side and
+    // calling hide() / show() before it settles is what causes the persistent
+    // duplicate-icon bug. Electron's own internal guard is ~1s, so wait it out
+    // before the queue can run another op.
+    await new Promise((r) => setTimeout(r, 1100));
   }).catch((err) => {
     console.error('Dock sync error:', err);
   });
