@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.3
+- Make release script interactive with confirmation prompt
+- Support saving images from Messenger chat via right-click
+- Restore native Facebook header and add DevTools menu item
+
+
 ## v1.1.2
 - Improve auto-updater UX
 
