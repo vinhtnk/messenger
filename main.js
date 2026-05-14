@@ -642,7 +642,7 @@ function createMenu() {
         { role: 'about' },
         {
           label: 'Check for Updates...',
-          click: () => checkForUpdates(),
+          click: () => checkForUpdates(true),
         },
         { type: 'separator' },
         {
@@ -716,42 +716,131 @@ function createMenu() {
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
 
-function checkForUpdates() {
+let updateDownloadStarted = false;
+let updateDownloaded = false;
+let updateDownloadedInfo = null;
+let manualCheckInFlight = false;
+let updateDownloadProgress = 0;
+
+function setUpdateProgressBar(fraction) {
+  for (const win of [mainWindow, chatPanelWindow]) {
+    if (win && !win.isDestroyed()) win.setProgressBar(fraction);
+  }
+}
+
+async function promptRestartForUpdate(info) {
+  const version = info && info.version ? `v${info.version}` : 'The update';
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Update Ready',
+    message: `${version} is ready to install. Restart Messenger to apply it?`,
+    buttons: ['Restart Now', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response === 0) {
+    isQuitting = true;
+    autoUpdater.quitAndInstall();
+  }
+}
+
+function checkForUpdates(manual = false) {
+  if (updateDownloaded) {
+    if (manual) promptRestartForUpdate(updateDownloadedInfo);
+    return;
+  }
+  if (updateDownloadStarted) {
+    if (manual) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Downloading Update',
+        message: `Update is downloading… ${Math.round(updateDownloadProgress)}%`,
+        detail: 'We’ll let you know when it’s ready to install.',
+        buttons: ['OK'],
+      });
+    }
+    return;
+  }
+  manualCheckInFlight = manual;
   autoUpdater.checkForUpdates().catch((err) => {
-    console.error('Update check failed:', err);
+    manualCheckInFlight = false;
+    if (manual) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Update Check Failed',
+        message: err && err.message ? err.message : String(err),
+        buttons: ['OK'],
+      });
+    } else {
+      console.error('Update check failed:', err);
+    }
   });
 }
 
 autoUpdater.on('update-available', async (info) => {
+  if (updateDownloadStarted || updateDownloaded) return;
+  manualCheckInFlight = false;
   const { response } = await dialog.showMessageBox(mainWindow, {
     type: 'info',
     title: 'Update Available',
-    message: `A new version (v${info.version}) is available. Would you like to download and install it?`,
+    message: `A new version (v${info.version}) is available. Would you like to download it now?`,
     buttons: ['Download', 'Later'],
     defaultId: 0,
     cancelId: 1,
   });
-
   if (response === 0) {
-    autoUpdater.downloadUpdate();
+    updateDownloadStarted = true;
+    updateDownloadProgress = 0;
+    setUpdateProgressBar(0);
+    autoUpdater.downloadUpdate().catch((err) => {
+      updateDownloadStarted = false;
+      setUpdateProgressBar(-1);
+      console.error('Update download failed:', err);
+    });
   }
 });
 
-autoUpdater.on('update-downloaded', async () => {
-  const { response } = await dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Complete',
-    message: 'Update downloaded. The app will now restart to install it.',
-    buttons: ['Restart'],
-  });
+autoUpdater.on('download-progress', (p) => {
+  updateDownloadProgress = p && typeof p.percent === 'number' ? p.percent : 0;
+  setUpdateProgressBar(updateDownloadProgress / 100);
+});
 
-  if (response === 0) {
-    autoUpdater.quitAndInstall();
+autoUpdater.on('update-not-available', () => {
+  if (manualCheckInFlight) {
+    manualCheckInFlight = false;
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Up to Date',
+      message: 'Messenger is up to date.',
+      buttons: ['OK'],
+    });
   }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  updateDownloadStarted = false;
+  updateDownloaded = true;
+  updateDownloadedInfo = info;
+  updateDownloadProgress = 100;
+  setUpdateProgressBar(-1);
+  promptRestartForUpdate(info);
 });
 
 autoUpdater.on('error', (err) => {
-  console.error('Auto-updater error:', err);
+  const wasManual = manualCheckInFlight;
+  manualCheckInFlight = false;
+  updateDownloadStarted = false;
+  setUpdateProgressBar(-1);
+  if (wasManual) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'Update Error',
+      message: err && err.message ? err.message : String(err),
+      buttons: ['OK'],
+    });
+  } else {
+    console.error('Auto-updater error:', err);
+  }
 });
 
 // App lifecycle
