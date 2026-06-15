@@ -731,6 +731,13 @@ function updateBubbleVisibility() {
   } else {
     if (!bubbleWindow.isVisible()) bubbleWindow.showInactive();
   }
+
+  // Showing the type:'panel' bubble can flip the app into a macOS accessory
+  // state and drop the Dock icon. Re-assert 'regular' to keep the Dock icon.
+  // (setActivationPolicy only — never app.dock toggling, which duplicates it.)
+  if (process.platform === 'darwin') {
+    app.setActivationPolicy('regular');
+  }
 }
 
 function toggleBubble() {
@@ -1174,17 +1181,33 @@ app.on('browser-window-blur', (_event, window) => {
   }, 200);
 });
 
-app.whenReady().then(async () => {
-  await migrateSession();
-  setupDownloads(session.fromPartition('persist:messenger'));
-  createMenu();
-  createWindow();
+// Single-instance lock. On macOS this app never truly quits when its window is
+// closed — it stays alive hidden in the background. Without this lock, clicking
+// the Dock/app icon to "reopen" launches a SECOND process, leaving two Dock
+// icons (both with the running dot). If we don't get the lock, another instance
+// already owns it: quit immediately and let the existing one come forward.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-  updateBubbleVisibility();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  // A second launch was attempted — surface the existing instance instead.
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
 
-  // Check for updates after 3s delay
-  setTimeout(() => checkForUpdates(), 3000);
-});
+  app.whenReady().then(async () => {
+    await migrateSession();
+    setupDownloads(session.fromPartition('persist:messenger'));
+    createMenu();
+    createWindow();
+
+    updateBubbleVisibility();
+
+    // Check for updates after 3s delay
+    setTimeout(() => checkForUpdates(), 3000);
+  });
+}
 
 // macOS: show/unminimize window on dock icon click.
 // Clicking the bubble also fires `activate`; defer the main-window pop so a
