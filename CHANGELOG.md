@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.3
+- Revert Dock activation-policy tweak (caused duplicate icon)
+
+
 ## v1.2.2
 - Fix blob attachment preview and missing Dock icon
 
