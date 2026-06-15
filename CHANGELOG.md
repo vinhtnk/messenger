@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.0
+- Preview PDF and Word (.docx) attachments in-app instead of downloading to Finder
+- Attachment viewer window with Save a copy and Open in default app
+
+
 ## v1.1.6
 - Remove dock hide feature to avoid Electron duplicate-icon bug
 

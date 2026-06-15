@@ -3,6 +3,7 @@ const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 
 const store = new Store();
 
@@ -69,6 +70,21 @@ function reportUnreadFromTitle(wc, title) {
   }
 }
 
+// Documents we can preview in-app: PDFs (native Chromium viewer) and
+// Word files (.docx rendered via mammoth; .doc falls back to the OS app).
+const PREVIEWABLE_EXTS = ['.pdf', '.doc', '.docx'];
+
+// A "_blank"/window.open target that points at a previewable document — we
+// download it in-app (-> will-download -> viewer) instead of the OS browser.
+function looksLikeAttachmentUrl(url) {
+  try {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    return PREVIEWABLE_EXTS.includes(ext);
+  } catch (e) {
+    return false;
+  }
+}
+
 function isMessengerUrl(url) {
   return (
     url.startsWith('https://www.facebook.com/messages') ||
@@ -114,10 +130,9 @@ async function migrateSession() {
   store.set('sessionMigrated', true);
 }
 
-function uniqueDownloadPath(filename) {
-  const dir = app.getPath('downloads');
+function uniquePath(dir, filename, fallbackBase) {
   const ext = path.extname(filename) || '';
-  const base = path.basename(filename, ext) || 'image';
+  const base = path.basename(filename, ext) || fallbackBase;
   let candidate = path.join(dir, `${base}${ext}`);
   let n = 1;
   while (fs.existsSync(candidate) && n < 1000) {
@@ -127,12 +142,43 @@ function uniqueDownloadPath(filename) {
   return candidate;
 }
 
+function uniqueDownloadPath(filename) {
+  return uniquePath(app.getPath('downloads'), filename, 'image');
+}
+
+function isPreviewableAttachment(filename) {
+  return PREVIEWABLE_EXTS.includes(path.extname(filename).toLowerCase());
+}
+
+function attachmentCachePath(filename) {
+  const dir = path.join(app.getPath('temp'), 'Messenger Attachments');
+  fs.mkdirSync(dir, { recursive: true });
+  return uniquePath(dir, filename, 'attachment');
+}
+
 function setupDownloads(targetSession) {
   if (targetSession.__msgrDownloadsWired) return;
   targetSession.__msgrDownloadsWired = true;
 
   targetSession.on('will-download', (_event, item) => {
-    const savePath = uniqueDownloadPath(item.getFilename());
+    const filename = item.getFilename();
+
+    // Previewable docs go to a cache dir and open in an in-app viewer
+    // instead of landing in Downloads + Finder.
+    if (isPreviewableAttachment(filename)) {
+      const savePath = attachmentCachePath(filename);
+      item.setSavePath(savePath);
+      item.once('done', (_e, state) => {
+        if (state === 'completed') {
+          openAttachmentViewer(savePath, filename);
+        } else {
+          console.error('Attachment download failed:', state, savePath);
+        }
+      });
+      return;
+    }
+
+    const savePath = uniqueDownloadPath(filename);
     item.setSavePath(savePath);
 
     item.once('done', (_e, state) => {
@@ -142,6 +188,69 @@ function setupDownloads(targetSession) {
         console.error('Download failed:', state, savePath);
       }
     });
+  });
+}
+
+// Maps a viewer window's webContents id -> { filePath, filename } so the
+// "Save a copy" / "Open in default app" actions know what file to act on.
+const viewerFiles = new Map();
+
+async function openAttachmentViewer(filePath, filename) {
+  const ext = path.extname(filename).toLowerCase();
+  let payload;
+
+  if (ext === '.pdf') {
+    payload = { kind: 'pdf', fileUrl: pathToFileURL(filePath).href, filename };
+  } else {
+    // Word: render .docx with mammoth; .doc (legacy binary) isn't supported,
+    // so surface a friendly fallback to open it in the system app.
+    try {
+      const mammoth = require('mammoth');
+      const { value } = await mammoth.convertToHtml({ path: filePath });
+      payload = { kind: 'html', html: value, filename };
+    } catch (err) {
+      console.error('Word preview failed:', err);
+      payload = {
+        kind: 'error',
+        filename,
+        message:
+          ext === '.doc'
+            ? 'Legacy .doc files can’t be previewed in-app. Open it in your default app instead.'
+            : 'This document couldn’t be previewed in-app. Open it in your default app instead.',
+      };
+    }
+  }
+
+  createViewerWindow(payload, filePath, filename);
+}
+
+function createViewerWindow(payload, filePath, filename) {
+  const viewer = new BrowserWindow({
+    width: 820,
+    height: 900,
+    minWidth: 480,
+    minHeight: 400,
+    title: filename,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'viewer-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      plugins: true,
+    },
+  });
+
+  viewerFiles.set(viewer.webContents.id, { filePath, filename });
+
+  viewer.loadFile('viewer.html');
+  viewer.webContents.once('did-finish-load', () => {
+    viewer.webContents.send('viewer-data', payload);
+  });
+
+  setupContextMenu(viewer);
+
+  viewer.on('closed', () => {
+    viewerFiles.delete(viewer.webContents.id);
   });
 }
 
@@ -240,7 +349,9 @@ function createWindow() {
 
   // Handle new window requests (target="_blank" links)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isMessengerUrl(url)) {
+    if (looksLikeAttachmentUrl(url)) {
+      mainWindow.webContents.downloadURL(url);
+    } else if (!isMessengerUrl(url)) {
       shell.openExternal(url);
     }
     return { action: 'deny' };
@@ -427,7 +538,11 @@ function createChatPanel() {
   setupContextMenu(chatPanelWindow);
 
   chatPanelWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isMessengerUrl(url)) shell.openExternal(url);
+    if (looksLikeAttachmentUrl(url)) {
+      chatPanelWindow.webContents.downloadURL(url);
+    } else if (!isMessengerUrl(url)) {
+      shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
@@ -684,6 +799,26 @@ function openSettingsWindow() {
     settingsWindow = null;
   });
 }
+
+ipcMain.on('viewer-save-copy', (e) => {
+  const info = viewerFiles.get(e.sender.id);
+  if (!info) return;
+  try {
+    const dest = uniqueDownloadPath(info.filename);
+    fs.copyFileSync(info.filePath, dest);
+    shell.showItemInFolder(dest);
+  } catch (err) {
+    console.error('Saving attachment copy failed:', err);
+  }
+});
+
+ipcMain.on('viewer-open-external', (e) => {
+  const info = viewerFiles.get(e.sender.id);
+  if (!info) return;
+  shell.openPath(info.filePath).then((err) => {
+    if (err) console.error('Opening attachment externally failed:', err);
+  });
+});
 
 ipcMain.handle('settings-get', () => getSettings());
 
