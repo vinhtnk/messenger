@@ -74,6 +74,23 @@ function reportUnreadFromTitle(wc, title) {
 // Word files (.docx rendered via mammoth; .doc falls back to the OS app).
 const PREVIEWABLE_EXTS = ['.pdf', '.doc', '.docx'];
 
+// blob: downloads often arrive without a filename extension, so we also map
+// the MIME type to an extension to recover the real type.
+const MIME_TO_EXT = {
+  'application/pdf': '.pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/msword': '.doc',
+};
+
+// Ensure a download has a usable extension: keep the existing one, else derive
+// it from the MIME type so previewable docs are still recognized.
+function ensureFilenameExtension(filename, mimeType) {
+  const name = filename || 'attachment';
+  if (path.extname(name)) return name;
+  const ext = MIME_TO_EXT[mimeType];
+  return ext ? `${name}${ext}` : name;
+}
+
 // A "_blank"/window.open target that points at a previewable document — we
 // download it in-app (-> will-download -> viewer) instead of the OS browser.
 function looksLikeAttachmentUrl(url) {
@@ -91,6 +108,27 @@ function isMessengerUrl(url) {
     url.startsWith('https://facebook.com/messages') ||
     url.startsWith('https://www.messenger.com/')
   );
+}
+
+// Keep the macOS Dock icon present. Creating the floating bubble panel can flip
+// the app into an accessory ('agent') activation policy, which hides the Dock
+// icon. Re-assert 'regular' only when needed — unconditional show/hide toggling
+// is what caused the earlier duplicate-icon bug.
+function ensureDockIconVisible() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  // setActivationPolicy('regular') is idempotent; dock.show() is guarded so we
+  // never toggle a visible icon (toggling re-introduced the duplicate icon).
+  app.setActivationPolicy('regular');
+  if (!app.dock.isVisible()) app.dock.show();
+}
+
+// Only hand real web URLs to the OS. blob:/data:/about: URLs are scoped to the
+// renderer that created them — the OS can't open them and macOS shows a
+// "There is no application set to open the URL" dialog if we try.
+function openExternalSafe(url) {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    shell.openExternal(url);
+  }
 }
 
 let mainWindow;
@@ -161,45 +199,91 @@ function setupDownloads(targetSession) {
   targetSession.__msgrDownloadsWired = true;
 
   targetSession.on('will-download', (_event, item) => {
-    const filename = item.getFilename();
+    // Recover a real extension for blob downloads that arrive without one,
+    // otherwise previewable docs get misrouted to Downloads.
+    const filename = ensureFilenameExtension(item.getFilename(), item.getMimeType());
+    const mimeType = item.getMimeType();
 
-    // Previewable docs go to a cache dir and open in an in-app viewer
-    // instead of landing in Downloads + Finder.
-    if (isPreviewableAttachment(filename)) {
-      const savePath = attachmentCachePath(filename);
-      item.setSavePath(savePath);
-      item.once('done', (_e, state) => {
-        if (state === 'completed') {
-          openAttachmentViewer(savePath, filename);
-        } else {
-          console.error('Attachment download failed:', state, savePath);
-        }
-      });
-      return;
-    }
-
-    const savePath = uniqueDownloadPath(filename);
+    // Stage EVERY download in a cache dir first. We can't reliably tell a
+    // previewable doc apart until the bytes land (blob downloads often lack a
+    // filename extension and MIME), so we sniff the file once it completes and
+    // either open the in-app viewer or move it to Downloads + reveal in Finder.
+    const savePath = attachmentCachePath(filename);
     item.setSavePath(savePath);
-
     item.once('done', (_e, state) => {
-      if (state === 'completed') {
-        shell.showItemInFolder(savePath);
-      } else {
+      if (state !== 'completed') {
         console.error('Download failed:', state, savePath);
+        return;
       }
+      routeCompletedDownload(savePath, filename, mimeType);
     });
   });
+}
+
+// PDF magic bytes ("%PDF"); used to detect PDFs whose filename/MIME were
+// stripped by a blob download.
+function sniffIsPdf(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(4);
+    fs.readSync(fd, buf, 0, 4, 0);
+    fs.closeSync(fd);
+    return buf.toString('latin1') === '%PDF';
+  } catch (e) {
+    return false;
+  }
+}
+
+// Resolve a completed download to a preview kind: 'pdf', 'word', or null
+// (not previewable). Checks extension, then MIME, then file content.
+function resolvePreviewKind(filePath, filename, mimeType) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.doc' || ext === '.docx') return 'word';
+
+  const mimeExt = MIME_TO_EXT[mimeType];
+  if (mimeExt === '.pdf') return 'pdf';
+  if (mimeExt === '.doc' || mimeExt === '.docx') return 'word';
+
+  if (sniffIsPdf(filePath)) return 'pdf';
+  return null;
+}
+
+function routeCompletedDownload(filePath, filename, mimeType) {
+  const kind = resolvePreviewKind(filePath, filename, mimeType);
+
+  if (kind) {
+    openAttachmentViewer(filePath, filename, kind);
+    return;
+  }
+
+  // Not previewable: move out of the cache into Downloads and reveal it.
+  const dest = uniqueDownloadPath(filename);
+  try {
+    try {
+      fs.renameSync(filePath, dest);
+    } catch (e) {
+      // rename fails across volumes (temp vs Downloads) — fall back to copy.
+      fs.copyFileSync(filePath, dest);
+      fs.unlinkSync(filePath);
+    }
+    shell.showItemInFolder(dest);
+  } catch (err) {
+    console.error('Failed to move download to Downloads:', err);
+    shell.showItemInFolder(filePath);
+  }
 }
 
 // Maps a viewer window's webContents id -> { filePath, filename } so the
 // "Save a copy" / "Open in default app" actions know what file to act on.
 const viewerFiles = new Map();
 
-async function openAttachmentViewer(filePath, filename) {
+async function openAttachmentViewer(filePath, filename, kind) {
   const ext = path.extname(filename).toLowerCase();
+  if (!kind) kind = ext === '.pdf' ? 'pdf' : 'word';
   let payload;
 
-  if (ext === '.pdf') {
+  if (kind === 'pdf') {
     payload = { kind: 'pdf', fileUrl: pathToFileURL(filePath).href, filename };
   } else {
     // Word: render .docx with mammoth; .doc (legacy binary) isn't supported,
@@ -349,10 +433,12 @@ function createWindow() {
 
   // Handle new window requests (target="_blank" links)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (looksLikeAttachmentUrl(url)) {
+    if (url.startsWith('blob:') || looksLikeAttachmentUrl(url)) {
+      // blob: targets are in-renderer document/file attachments — download
+      // them in-app (-> will-download -> viewer) rather than to the OS.
       mainWindow.webContents.downloadURL(url);
     } else if (!isMessengerUrl(url)) {
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
     return { action: 'deny' };
   });
@@ -368,9 +454,15 @@ function createWindow() {
       return;
     }
 
+    if (url.startsWith('blob:')) {
+      event.preventDefault();
+      mainWindow.webContents.downloadURL(url);
+      return;
+    }
+
     if (!shouldAllowNavigation(url)) {
       event.preventDefault();
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
   });
 
@@ -462,6 +554,12 @@ function createBubbleWindow() {
   bubbleWindow.setAlwaysOnTop(true, 'floating');
   bubbleWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
+  // Creating the floating panel (type: 'panel' + visible-on-all-workspaces)
+  // can flip the app into a macOS accessory state and drop the Dock icon.
+  // Re-assert a regular activation policy so the Dock icon stays. Guarded so we
+  // don't toggle it (toggling re-introduces the duplicate-icon bug).
+  ensureDockIconVisible();
+
   bubbleWindow.loadFile('bubble.html');
 
   bubbleWindow.webContents.once('did-finish-load', () => {
@@ -538,10 +636,10 @@ function createChatPanel() {
   setupContextMenu(chatPanelWindow);
 
   chatPanelWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (looksLikeAttachmentUrl(url)) {
+    if (url.startsWith('blob:') || looksLikeAttachmentUrl(url)) {
       chatPanelWindow.webContents.downloadURL(url);
     } else if (!isMessengerUrl(url)) {
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
     return { action: 'deny' };
   });
@@ -556,9 +654,14 @@ function createChatPanel() {
       event.preventDefault();
       return;
     }
+    if (url.startsWith('blob:')) {
+      event.preventDefault();
+      chatPanelWindow.webContents.downloadURL(url);
+      return;
+    }
     if (!shouldAllowNavigation(url)) {
       event.preventDefault();
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
   });
 
@@ -1096,6 +1199,7 @@ app.whenReady().then(async () => {
   createWindow();
 
   updateBubbleVisibility();
+  ensureDockIconVisible();
 
   // Check for updates after 3s delay
   setTimeout(() => checkForUpdates(), 3000);
