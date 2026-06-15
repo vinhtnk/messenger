@@ -110,18 +110,6 @@ function isMessengerUrl(url) {
   );
 }
 
-// Keep the macOS Dock icon present. Creating the floating bubble panel can flip
-// the app into an accessory ('agent') activation policy, which hides the Dock
-// icon. Re-assert 'regular' only when needed — unconditional show/hide toggling
-// is what caused the earlier duplicate-icon bug.
-function ensureDockIconVisible() {
-  if (process.platform !== 'darwin' || !app.dock) return;
-  // setActivationPolicy('regular') is idempotent; dock.show() is guarded so we
-  // never toggle a visible icon (toggling re-introduced the duplicate icon).
-  app.setActivationPolicy('regular');
-  if (!app.dock.isVisible()) app.dock.show();
-}
-
 // Only hand real web URLs to the OS. blob:/data:/about: URLs are scoped to the
 // renderer that created them — the OS can't open them and macOS shows a
 // "There is no application set to open the URL" dialog if we try.
@@ -553,12 +541,6 @@ function createBubbleWindow() {
 
   bubbleWindow.setAlwaysOnTop(true, 'floating');
   bubbleWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-  // Creating the floating panel (type: 'panel' + visible-on-all-workspaces)
-  // can flip the app into a macOS accessory state and drop the Dock icon.
-  // Re-assert a regular activation policy so the Dock icon stays. Guarded so we
-  // don't toggle it (toggling re-introduces the duplicate-icon bug).
-  ensureDockIconVisible();
 
   bubbleWindow.loadFile('bubble.html');
 
@@ -1199,7 +1181,6 @@ app.whenReady().then(async () => {
   createWindow();
 
   updateBubbleVisibility();
-  ensureDockIconVisible();
 
   // Check for updates after 3s delay
   setTimeout(() => checkForUpdates(), 3000);
