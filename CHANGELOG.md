@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.2
+- Fix blob attachment preview and missing Dock icon
+
+
 ## v1.2.1
 - 1.2.0: in-app PDF and Word attachment preview
 
