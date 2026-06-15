@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.5
+- Add single-instance lock to stop duplicate Dock icons
+- Remove Dock activation-policy call (duplicated the icon)
+
+
 ## v1.2.4
 - Keep Dock icon visible without duplicating it
 
