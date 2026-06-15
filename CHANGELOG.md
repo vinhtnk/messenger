@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.4
+- Keep Dock icon visible without duplicating it
+
+
 ## v1.2.3
 - Revert Dock activation-policy tweak (caused duplicate icon)
 
