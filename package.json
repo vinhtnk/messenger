@@ -1,6 +1,6 @@
 {
   "name": "messenger",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Messenger desktop app for macOS",
   "main": "main.js",
   "scripts": {

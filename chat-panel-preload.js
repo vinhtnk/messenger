@@ -12,7 +12,7 @@ const HEADER_CSS = `
     left: 0;
     right: 0;
     height: 56px;
-    background: linear-gradient(135deg, #0084ff 0%, #44bec7 60%, #a06cd5 100%);
+    background: #0084ff;
     color: white;
     display: flex;
     align-items: center;

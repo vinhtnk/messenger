@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.1
+- 1.2.0: in-app PDF and Word attachment preview
+
+
 ## v1.2.0
 - Preview PDF and Word (.docx) attachments in-app instead of downloading to Finder
 - Attachment viewer window with Save a copy and Open in default app
