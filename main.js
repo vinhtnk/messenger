@@ -731,13 +731,6 @@ function updateBubbleVisibility() {
   } else {
     if (!bubbleWindow.isVisible()) bubbleWindow.showInactive();
   }
-
-  // Showing the type:'panel' bubble can flip the app into a macOS accessory
-  // state and drop the Dock icon. Re-assert 'regular' to keep the Dock icon.
-  // (setActivationPolicy only — never app.dock toggling, which duplicates it.)
-  if (process.platform === 'darwin') {
-    app.setActivationPolicy('regular');
-  }
 }
 
 function toggleBubble() {
