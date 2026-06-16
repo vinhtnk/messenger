@@ -1142,6 +1142,13 @@ function performUpdateRestart() {
   settingsWindow = null;
   mainWindow = null;
 
+  // Release the single-instance lock BEFORE quitAndInstall. Squirrel relaunches
+  // the freshly-installed app while this old process is still exiting; if we
+  // still held the lock, the relaunched instance would race the dying one and
+  // macOS could show two Dock icons during the handoff. Releasing it lets the
+  // new instance acquire the lock cleanly.
+  if (app.releaseSingleInstanceLock) app.releaseSingleInstanceLock();
+
   setTimeout(() => autoUpdater.quitAndInstall(), UPDATE_RESTART_DELAY_MS);
 }
 
