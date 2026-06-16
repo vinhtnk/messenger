@@ -88,6 +88,7 @@ function parseUnreadCount(title) {
 }
 
 function reportUnreadFromTitle(wc, title) {
+  if (!wc || wc.isDestroyed()) return;
   const parsed = parseUnreadCount(title);
   if (parsed === null) return;
   unreadByWebContents.set(wc.id, parsed);
@@ -544,8 +545,10 @@ function createWindow() {
     `);
   });
 
-  mainWindow.webContents.on('page-title-updated', (_event, title) => {
-    reportUnreadFromTitle(mainWindow.webContents, title);
+  mainWindow.webContents.on('page-title-updated', (event, title) => {
+    // Use the event sender, not the global mainWindow — the window may already
+    // be nulled during teardown (e.g. update restart), which crashed here.
+    reportUnreadFromTitle(event.sender, title);
   });
 
   // Hide window instead of closing on macOS (unless quitting)
@@ -714,8 +717,8 @@ function createChatPanel() {
 
 
   const panelWcId = chatPanelWindow.webContents.id;
-  chatPanelWindow.webContents.on('page-title-updated', (_event, title) => {
-    reportUnreadFromTitle(chatPanelWindow.webContents, title);
+  chatPanelWindow.webContents.on('page-title-updated', (event, title) => {
+    reportUnreadFromTitle(event.sender, title);
   });
   chatPanelWindow.once('closed', () => {
     unreadByWebContents.delete(panelWcId);
