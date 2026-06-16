@@ -1005,7 +1005,16 @@ function createMenu() {
           label: 'Close Window',
           accelerator: 'CmdOrCtrl+W',
           click: () => {
-            if (mainWindow) mainWindow.hide();
+            const focused = BrowserWindow.getFocusedWindow();
+            if (!focused) return;
+            // Main/chat windows hide (they persist in the background on macOS);
+            // auxiliary windows (preview viewer, settings) actually close. Never
+            // close the floating bubble via Cmd+W.
+            if (focused === mainWindow || focused === chatPanelWindow) {
+              focused.hide();
+            } else if (focused !== bubbleWindow) {
+              focused.close();
+            }
           },
         },
         { role: 'minimize' },
