@@ -222,6 +222,33 @@ function sniffIsPdf(filePath) {
   }
 }
 
+// A .docx is a ZIP archive ("PK") containing a "word/document.xml" entry. The
+// entry name is stored uncompressed, so we can find it by scanning the raw
+// bytes — used to detect Word docs whose filename/MIME were stripped by a blob
+// download. (xlsx/pptx are also ZIPs but use "xl/"/"ppt/", so this won't match.)
+function sniffIsDocx(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const size = fs.fstatSync(fd).size;
+    const probe = Math.min(size, 64 * 1024);
+    // Read the head (local file headers, in order) and the tail (central
+    // directory lists every entry) — covers small and large docx alike.
+    const head = Buffer.alloc(probe);
+    fs.readSync(fd, head, 0, probe, 0);
+    if (head.slice(0, 2).toString('latin1') !== 'PK') return false;
+    if (head.toString('latin1').includes('word/document.xml')) return true;
+
+    const tail = Buffer.alloc(probe);
+    fs.readSync(fd, tail, 0, probe, Math.max(0, size - probe));
+    return tail.toString('latin1').includes('word/document.xml');
+  } catch (e) {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 // Resolve a completed download to a preview kind: 'pdf', 'word', or null
 // (not previewable). Checks extension, then MIME, then file content.
 function resolvePreviewKind(filePath, filename, mimeType) {
@@ -234,6 +261,7 @@ function resolvePreviewKind(filePath, filename, mimeType) {
   if (mimeExt === '.doc' || mimeExt === '.docx') return 'word';
 
   if (sniffIsPdf(filePath)) return 'pdf';
+  if (sniffIsDocx(filePath)) return 'word';
   return null;
 }
 
