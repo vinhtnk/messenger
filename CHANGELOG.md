@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.6
+- Detect Word docs by content so blob .docx attachments preview
+
+
 ## v1.2.5
 - Add single-instance lock to stop duplicate Dock icons
 - Remove Dock activation-policy call (duplicated the icon)
