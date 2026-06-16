@@ -19,6 +19,23 @@ const STORE_KEYS = {
 
 const MESSENGER_URL = 'https://www.facebook.com/messages';
 
+// Named persistent session shared by the main and chat-panel windows.
+const SESSION_PARTITION = 'persist:messenger';
+
+// Subdirectory (under the OS temp dir) where previewable attachments are staged.
+const ATTACHMENT_CACHE_DIR_NAME = 'Messenger Attachments';
+
+// File-type sniffing tokens for downloads whose filename/MIME were stripped.
+const PDF_MAGIC = '%PDF'; // leading bytes of every PDF
+const ZIP_MAGIC = 'PK'; // leading bytes of every ZIP (and thus every .docx)
+const DOCX_ENTRY_NAME = 'word/document.xml'; // ZIP entry unique to Word .docx
+const SNIFF_PROBE_BYTES = 64 * 1024; // how much of the file to scan when sniffing
+
+// Timing (ms).
+const PANEL_CLOSE_BLUR_DELAY_MS = 150; // wait for focus to settle before auto-hiding the panel
+const DRAG_OFFSET_RESET_MS = 200; // clear the bubble/panel drag offset after dragging stops
+const BUBBLE_SHOW_AFTER_BLUR_MS = 200; // re-evaluate bubble visibility shortly after a blur
+
 // URLs allowed for in-app navigation (Messenger + login/auth flows)
 function isAllowedUrl(url) {
   const allowed = [
@@ -146,7 +163,7 @@ async function migrateSession() {
   if (store.get(STORE_KEYS.SESSION_MIGRATED)) return;
 
   const defaultSession = session.defaultSession;
-  const messengerSession = session.fromPartition('persist:messenger');
+  const messengerSession = session.fromPartition(SESSION_PARTITION);
 
   try {
     const cookies = await defaultSession.cookies.get({});
@@ -187,7 +204,7 @@ function isPreviewableAttachment(filename) {
 }
 
 function attachmentCachePath(filename) {
-  const dir = path.join(app.getPath('temp'), 'Messenger Attachments');
+  const dir = path.join(app.getPath('temp'), ATTACHMENT_CACHE_DIR_NAME);
   fs.mkdirSync(dir, { recursive: true });
   return uniquePath(dir, filename, 'attachment');
 }
@@ -226,7 +243,7 @@ function sniffIsPdf(filePath) {
     const buf = Buffer.alloc(4);
     fs.readSync(fd, buf, 0, 4, 0);
     fs.closeSync(fd);
-    return buf.toString('latin1') === '%PDF';
+    return buf.toString('latin1') === PDF_MAGIC;
   } catch (e) {
     return false;
   }
@@ -241,17 +258,17 @@ function sniffIsDocx(filePath) {
   try {
     fd = fs.openSync(filePath, 'r');
     const size = fs.fstatSync(fd).size;
-    const probe = Math.min(size, 64 * 1024);
+    const probe = Math.min(size, SNIFF_PROBE_BYTES);
     // Read the head (local file headers, in order) and the tail (central
     // directory lists every entry) — covers small and large docx alike.
     const head = Buffer.alloc(probe);
     fs.readSync(fd, head, 0, probe, 0);
-    if (head.slice(0, 2).toString('latin1') !== 'PK') return false;
-    if (head.toString('latin1').includes('word/document.xml')) return true;
+    if (head.slice(0, 2).toString('latin1') !== ZIP_MAGIC) return false;
+    if (head.toString('latin1').includes(DOCX_ENTRY_NAME)) return true;
 
     const tail = Buffer.alloc(probe);
     fs.readSync(fd, tail, 0, probe, Math.max(0, size - probe));
-    return tail.toString('latin1').includes('word/document.xml');
+    return tail.toString('latin1').includes(DOCX_ENTRY_NAME);
   } catch (e) {
     return false;
   } finally {
@@ -439,7 +456,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'persist:messenger',
+      partition: SESSION_PARTITION,
     },
     title: 'Messenger',
   });
@@ -644,7 +661,7 @@ function createChatPanel() {
       preload: path.join(__dirname, 'chat-panel-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'persist:messenger',
+      partition: SESSION_PARTITION,
     },
   });
 
@@ -720,7 +737,7 @@ function createChatPanel() {
       if (!chatPanelWindow.isVisible()) return;
       if (BrowserWindow.getFocusedWindow()) return;
       hideChatPanel();
-    }, 150);
+    }, PANEL_CLOSE_BLUR_DELAY_MS);
   });
 
   chatPanelWindow.on('closed', () => {
@@ -845,7 +862,7 @@ ipcMain.on('bubble-set-position', (e, x, y) => {
   dragResetTimer = setTimeout(() => {
     dragPanelOffset = null;
     dragResetTimer = null;
-  }, 200);
+  }, DRAG_OFFSET_RESET_MS);
 });
 
 let pendingActivateTimer = null;
@@ -1243,7 +1260,7 @@ app.on('browser-window-blur', (_event, window) => {
   pendingBubbleShowTimer = setTimeout(() => {
     pendingBubbleShowTimer = null;
     updateBubbleVisibility();
-  }, 200);
+  }, BUBBLE_SHOW_AFTER_BLUR_MS);
 });
 
 // Single-instance lock. On macOS this app never truly quits when its window is
@@ -1263,7 +1280,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     await migrateSession();
-    setupDownloads(session.fromPartition('persist:messenger'));
+    setupDownloads(session.fromPartition(SESSION_PARTITION));
     createMenu();
     createWindow();
 
