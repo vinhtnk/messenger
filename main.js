@@ -7,6 +7,16 @@ const { pathToFileURL } = require('url');
 
 const store = new Store();
 
+// Persisted settings/state keys. Use these constants instead of raw strings so
+// the keys are declared in one place and can't drift apart across call sites.
+const STORE_KEYS = {
+  SESSION_MIGRATED: 'sessionMigrated',
+  WINDOW_BOUNDS: 'windowBounds',
+  BUBBLE_POSITION: 'bubblePosition',
+  BUBBLE_ENABLED: 'bubbleEnabled',
+  CLOSE_PANEL_ON_CLICK_OUTSIDE: 'closePanelOnClickOutside',
+};
+
 const MESSENGER_URL = 'https://www.facebook.com/messages';
 
 // URLs allowed for in-app navigation (Messenger + login/auth flows)
@@ -133,7 +143,7 @@ const BUBBLE_SIZE = 88;
 
 // One-time migration of cookies from default session to named persistent partition
 async function migrateSession() {
-  if (store.get('sessionMigrated')) return;
+  if (store.get(STORE_KEYS.SESSION_MIGRATED)) return;
 
   const defaultSession = session.defaultSession;
   const messengerSession = session.fromPartition('persist:messenger');
@@ -153,7 +163,7 @@ async function migrateSession() {
     console.error('Session migration error:', e);
   }
 
-  store.set('sessionMigrated', true);
+  store.set(STORE_KEYS.SESSION_MIGRATED, true);
 }
 
 function uniquePath(dir, filename, fallbackBase) {
@@ -410,7 +420,7 @@ function setupContextMenu(win) {
 }
 
 function createWindow() {
-  const windowBounds = store.get('windowBounds', {
+  const windowBounds = store.get(STORE_KEYS.WINDOW_BOUNDS, {
     width: 1200,
     height: 800,
     x: undefined,
@@ -436,11 +446,11 @@ function createWindow() {
 
   // Save window bounds on resize and move
   mainWindow.on('resize', () => {
-    store.set('windowBounds', mainWindow.getBounds());
+    store.set(STORE_KEYS.WINDOW_BOUNDS, mainWindow.getBounds());
   });
 
   mainWindow.on('move', () => {
-    store.set('windowBounds', mainWindow.getBounds());
+    store.set(STORE_KEYS.WINDOW_BOUNDS, mainWindow.getBounds());
   });
 
   mainWindow.loadURL(MESSENGER_URL);
@@ -537,7 +547,7 @@ function getDefaultBubblePosition() {
 function createBubbleWindow() {
   if (bubbleWindow && !bubbleWindow.isDestroyed()) return;
 
-  const saved = store.get('bubblePosition', null);
+  const saved = store.get(STORE_KEYS.BUBBLE_POSITION, null);
   const pos =
     saved && typeof saved.x === 'number' && typeof saved.y === 'number'
       ? saved
@@ -579,7 +589,7 @@ function createBubbleWindow() {
   bubbleWindow.on('move', () => {
     if (!bubbleWindow || bubbleWindow.isDestroyed()) return;
     const [x, y] = bubbleWindow.getPosition();
-    store.set('bubblePosition', { x, y });
+    store.set(STORE_KEYS.BUBBLE_POSITION, { x, y });
   });
 
   bubbleWindow.on('closed', () => {
@@ -699,6 +709,20 @@ function createChatPanel() {
     }
   });
 
+  // Optionally close the panel when the user clicks away from the app. We defer
+  // the check so focus can settle: if no app window is focused afterwards, focus
+  // left to another app (a real click-outside) and we hide; if focus moved to
+  // one of our own windows (viewer, settings, main, bubble), we leave it open.
+  chatPanelWindow.on('blur', () => {
+    if (!store.get(STORE_KEYS.CLOSE_PANEL_ON_CLICK_OUTSIDE, true)) return;
+    setTimeout(() => {
+      if (!chatPanelWindow || chatPanelWindow.isDestroyed()) return;
+      if (!chatPanelWindow.isVisible()) return;
+      if (BrowserWindow.getFocusedWindow()) return;
+      hideChatPanel();
+    }, 150);
+  });
+
   chatPanelWindow.on('closed', () => {
     chatPanelWindow = null;
   });
@@ -741,7 +765,7 @@ function shouldHideBubbleForFocus() {
 }
 
 function updateBubbleVisibility() {
-  const enabled = store.get('bubbleEnabled', true);
+  const enabled = store.get(STORE_KEYS.BUBBLE_ENABLED, true);
 
   if (!enabled) {
     if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
@@ -769,7 +793,7 @@ function updateBubbleVisibility() {
 }
 
 function toggleBubble() {
-  const enabled = store.get('bubbleEnabled', true);
+  const enabled = store.get(STORE_KEYS.BUBBLE_ENABLED, true);
   applySettings({ bubbleEnabled: !enabled });
 }
 
@@ -868,7 +892,8 @@ ipcMain.on('bubble-context-menu', (e) => {
 
 function getSettings() {
   return {
-    bubbleEnabled: store.get('bubbleEnabled', true),
+    bubbleEnabled: store.get(STORE_KEYS.BUBBLE_ENABLED, true),
+    closePanelOnClickOutside: store.get(STORE_KEYS.CLOSE_PANEL_ON_CLICK_OUTSIDE, true),
   };
 }
 
@@ -880,10 +905,13 @@ function notifySettingsChanged() {
 
 function applySettings(next) {
   if (typeof next.bubbleEnabled === 'boolean') {
-    store.set('bubbleEnabled', next.bubbleEnabled);
+    store.set(STORE_KEYS.BUBBLE_ENABLED, next.bubbleEnabled);
     if (!next.bubbleEnabled) {
       destroyBubbleWindow();
     }
+  }
+  if (typeof next.closePanelOnClickOutside === 'boolean') {
+    store.set(STORE_KEYS.CLOSE_PANEL_ON_CLICK_OUTSIDE, next.closePanelOnClickOutside);
   }
   updateBubbleVisibility();
   notifySettingsChanged();
@@ -898,7 +926,7 @@ function openSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 260,
+    height: 320,
     resizable: false,
     minimizable: false,
     maximizable: false,

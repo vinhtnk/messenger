@@ -78,15 +78,29 @@
     <input type="checkbox" class="toggle" id="bubbleEnabled" />
   </div>
 
+  <div class="row">
+    <div class="info">
+      <label for="closePanelOnClickOutside">Close chat panel when clicking away</label>
+      <div class="desc">Hide the bubble's chat panel automatically when you click outside it</div>
+    </div>
+    <input type="checkbox" class="toggle" id="closePanelOnClickOutside" />
+  </div>
+
   <script>
     const bubbleEnabled = document.getElementById('bubbleEnabled');
+    const closePanelOnClickOutside = document.getElementById('closePanelOnClickOutside');
 
     function render(s) {
       bubbleEnabled.checked = !!s.bubbleEnabled;
+      closePanelOnClickOutside.checked = !!s.closePanelOnClickOutside;
     }
 
     bubbleEnabled.addEventListener('change', () => {
       window.settingsAPI.set({ bubbleEnabled: bubbleEnabled.checked });
+    });
+
+    closePanelOnClickOutside.addEventListener('change', () => {
+      window.settingsAPI.set({ closePanelOnClickOutside: closePanelOnClickOutside.checked });
     });
 
     window.settingsAPI.onUpdate(render);
