@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.8
+- Release single-instance lock before quitAndInstall
+- Remove setActivationPolicy that re-introduced the duplicate Dock icon
+
+
 ## v1.2.7
 - Fix auto-update notifications not being seen
 - Replace magic strings/values with named constants
