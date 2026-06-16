@@ -35,6 +35,11 @@ const SNIFF_PROBE_BYTES = 64 * 1024; // how much of the file to scan when sniffi
 const PANEL_CLOSE_BLUR_DELAY_MS = 150; // wait for focus to settle before auto-hiding the panel
 const DRAG_OFFSET_RESET_MS = 200; // clear the bubble/panel drag offset after dragging stops
 const BUBBLE_SHOW_AFTER_BLUR_MS = 200; // re-evaluate bubble visibility shortly after a blur
+const UPDATE_RESTART_DELAY_MS = 150; // let windows tear down before quitAndInstall
+const INITIAL_UPDATE_CHECK_DELAY_MS = 3000; // first auto update check after launch
+// Re-check periodically: the app hides instead of quitting, so a long-running
+// instance would otherwise never notice a release published while it runs.
+const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000; // every 3 hours
 
 // URLs allowed for in-app navigation (Messenger + login/auth flows)
 function isAllowedUrl(url) {
@@ -1095,9 +1100,27 @@ function setUpdateProgressBar(fraction) {
   }
 }
 
+// Bring the app forward and return a visible window to anchor a dialog to. On
+// macOS a message box parented to a hidden window shows as a sheet on that
+// hidden window — i.e. the user never sees it. Update prompts must surface even
+// when the user is on the bubble/chat panel with the main window hidden.
+function surfaceWindowForDialog() {
+  if (app.focus) app.focus({ steal: true });
+  const owned = [mainWindow, chatPanelWindow].filter((w) => w && !w.isDestroyed());
+  let visible = owned.find((w) => w.isVisible());
+  if (!visible) {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+    mainWindow.show();
+    mainWindow.focus();
+    visible = mainWindow;
+  }
+  return visible;
+}
+
 async function promptRestartForUpdate(info) {
   const version = info && info.version ? `v${info.version}` : 'The update';
-  const { response } = await dialog.showMessageBox(mainWindow, {
+  const parent = surfaceWindowForDialog();
+  const { response } = await dialog.showMessageBox(parent, {
     type: 'info',
     title: 'Update Ready',
     message: `${version} is ready to install. Restart Messenger to apply it?`,
@@ -1126,7 +1149,7 @@ function performUpdateRestart() {
   settingsWindow = null;
   mainWindow = null;
 
-  setTimeout(() => autoUpdater.quitAndInstall(), 150);
+  setTimeout(() => autoUpdater.quitAndInstall(), UPDATE_RESTART_DELAY_MS);
 }
 
 function checkForUpdates(manual = false) {
@@ -1136,7 +1159,7 @@ function checkForUpdates(manual = false) {
   }
   if (updateDownloadStarted) {
     if (manual) {
-      dialog.showMessageBox(mainWindow, {
+      dialog.showMessageBox(surfaceWindowForDialog(), {
         type: 'info',
         title: 'Downloading Update',
         message: `Update is downloading… ${Math.round(updateDownloadProgress)}%`,
@@ -1150,7 +1173,7 @@ function checkForUpdates(manual = false) {
   autoUpdater.checkForUpdates().catch((err) => {
     manualCheckInFlight = false;
     if (manual) {
-      dialog.showMessageBox(mainWindow, {
+      dialog.showMessageBox(surfaceWindowForDialog(), {
         type: 'error',
         title: 'Update Check Failed',
         message: err && err.message ? err.message : String(err),
@@ -1165,7 +1188,8 @@ function checkForUpdates(manual = false) {
 autoUpdater.on('update-available', async (info) => {
   if (updateDownloadStarted || updateDownloaded) return;
   manualCheckInFlight = false;
-  const { response } = await dialog.showMessageBox(mainWindow, {
+  const parent = surfaceWindowForDialog();
+  const { response } = await dialog.showMessageBox(parent, {
     type: 'info',
     title: 'Update Available',
     message: `A new version (v${info.version}) is available. Would you like to download it now?`,
@@ -1193,7 +1217,7 @@ autoUpdater.on('download-progress', (p) => {
 autoUpdater.on('update-not-available', () => {
   if (manualCheckInFlight) {
     manualCheckInFlight = false;
-    dialog.showMessageBox(mainWindow, {
+    dialog.showMessageBox(surfaceWindowForDialog(), {
       type: 'info',
       title: 'Up to Date',
       message: 'Messenger is up to date.',
@@ -1217,7 +1241,7 @@ autoUpdater.on('error', (err) => {
   updateDownloadStarted = false;
   setUpdateProgressBar(-1);
   if (wasManual) {
-    dialog.showMessageBox(mainWindow, {
+    dialog.showMessageBox(surfaceWindowForDialog(), {
       type: 'error',
       title: 'Update Error',
       message: err && err.message ? err.message : String(err),
@@ -1286,8 +1310,10 @@ if (!hasSingleInstanceLock) {
 
     updateBubbleVisibility();
 
-    // Check for updates after 3s delay
-    setTimeout(() => checkForUpdates(), 3000);
+    // Check for updates shortly after launch, then on a recurring interval so a
+    // long-running (hidden) instance still discovers new releases.
+    setTimeout(() => checkForUpdates(), INITIAL_UPDATE_CHECK_DELAY_MS);
+    setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
   });
 }
 
