@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.7
+- Fix auto-update notifications not being seen
+- Replace magic strings/values with named constants
+- Add "close chat panel when clicking away" setting
+- Make Cmd+W close the focused preview/settings window
+
+
 ## v1.2.6
 - Detect Word docs by content so blob .docx attachments preview
 
