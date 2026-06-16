@@ -106,6 +106,11 @@ function reportUnreadFromTitle(wc, title) {
 // Word files (.docx rendered via mammoth; .doc falls back to the OS app).
 const PREVIEWABLE_EXTS = ['.pdf', '.doc', '.docx'];
 
+// Title for the attachment preview window. Blob downloads have ugly auto-
+// generated filenames, so the window title uses this instead of the filename
+// (the real filename still shows in the viewer's in-window header).
+const VIEWER_WINDOW_TITLE = 'Preview';
+
 // blob: downloads often arrive without a filename extension, so we also map
 // the MIME type to an extension to recover the real type.
 const MIME_TO_EXT = {
@@ -362,7 +367,7 @@ function createViewerWindow(payload, filePath, filename) {
     height: 900,
     minWidth: 480,
     minHeight: 400,
-    title: filename,
+    title: VIEWER_WINDOW_TITLE,
     backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'viewer-preload.js'),

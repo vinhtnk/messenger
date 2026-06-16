@@ -9,9 +9,10 @@ document.getElementById('btn-external')
   .addEventListener('click', () => window.__msgrViewer.openExternal());
 
 window.__msgrViewer.onData((data) => {
+  // Show the real filename in the in-window header, but keep the OS window
+  // title as the static "Preview" (blob filenames are ugly auto-generated IDs).
   if (data.filename) {
     titleEl.textContent = data.filename;
-    document.title = data.filename;
   }
 
   if (data.kind === 'pdf') {
