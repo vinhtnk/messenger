@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.9
+- Fix main-process crash on update restart (null webContents)
+- Use a clean "Preview" title for the attachment viewer window
+
+
 ## v1.2.8
 - Release single-instance lock before quitAndInstall
 - Remove setActivationPolicy that re-introduced the duplicate Dock icon
