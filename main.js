@@ -40,6 +40,28 @@ const INITIAL_UPDATE_CHECK_DELAY_MS = 3000; // first auto update check after lau
 // Re-check periodically: the app hides instead of quitting, so a long-running
 // instance would otherwise never notice a release published while it runs.
 const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000; // every 3 hours
+const RESERVE_FETCH_TIMEOUT_MS = 10000; // abort the reserve gist fetch if it hangs
+const RESERVE_DECISION_GRACE_MS = 4000; // let the primary updater win the race before the reserve notifies
+
+// Reserve update check: a public GitHub Gist (raw URL) holding JSON we can edit
+// to announce a new version independently of the electron-updater feed. Runs on
+// every update cycle alongside the primary check. Leave empty to disable.
+// Expected JSON shape:
+//   { "latestVersion": "1.2.9", "title": "...", "message": "...", "downloadUrl": "https://..." }
+const RESERVE_UPDATE_GIST_URL = '';
+
+// Fallback download page (used when the gist omits downloadUrl), derived from
+// the publish config so there's no second hardcoded owner/repo.
+const RELEASES_PAGE_URL = (() => {
+  try {
+    const p = require('./package.json').build.publish;
+    return p && p.owner && p.repo
+      ? `https://github.com/${p.owner}/${p.repo}/releases/latest`
+      : '';
+  } catch (e) {
+    return '';
+  }
+})();
 
 // URLs allowed for in-app navigation (Messenger + login/auth flows)
 function isAllowedUrl(url) {
@@ -1094,6 +1116,9 @@ let updateDownloaded = false;
 let updateDownloadedInfo = null;
 let manualCheckInFlight = false;
 let updateDownloadProgress = 0;
+let primaryUpdateAvailableShown = false; // did electron-updater offer an update this cycle?
+let reserveCheckInFlight = false;
+let reserveNotifiedVersion = null; // version the reserve dialog already announced this session
 
 function setUpdateProgressBar(fraction) {
   for (const win of [mainWindow, chatPanelWindow]) {
@@ -1160,6 +1185,74 @@ function performUpdateRestart() {
   setTimeout(() => autoUpdater.quitAndInstall(), UPDATE_RESTART_DELAY_MS);
 }
 
+// Compare dotted numeric versions (e.g. "1.2.9"). Returns true if remote > current.
+function isRemoteVersionNewer(remote, current) {
+  const r = String(remote).split('.').map((n) => parseInt(n, 10) || 0);
+  const c = String(current).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(r.length, c.length); i++) {
+    const rv = r[i] || 0;
+    const cv = c[i] || 0;
+    if (rv > cv) return true;
+    if (rv < cv) return false;
+  }
+  return false;
+}
+
+async function fetchReserveGist() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RESERVE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(RESERVE_UPDATE_GIST_URL, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': `${app.getName()}/${app.getVersion()}`,
+      },
+    });
+    if (!res.ok) throw new Error(`Reserve gist HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Reserve update check: independent of the electron-updater feed, it reads a
+// GitHub Gist we control and, if it announces a newer version, shows a dialog.
+// Runs alongside the primary check but yields to it (a short grace period) so we
+// don't double-notify when electron-updater is already handling the update.
+async function reserveUpdateCheck() {
+  if (!RESERVE_UPDATE_GIST_URL || reserveCheckInFlight) return;
+  reserveCheckInFlight = true;
+  try {
+    const data = await fetchReserveGist();
+    const remote = data && data.latestVersion ? String(data.latestVersion).trim() : '';
+    if (!remote || !isRemoteVersionNewer(remote, app.getVersion())) return;
+    if (reserveNotifiedVersion === remote) return; // already announced this version
+
+    // Let the primary updater win if it's also offering/handling this update.
+    await new Promise((r) => setTimeout(r, RESERVE_DECISION_GRACE_MS));
+    if (updateDownloaded || updateDownloadStarted || primaryUpdateAvailableShown) return;
+
+    reserveNotifiedVersion = remote;
+    const { response } = await dialog.showMessageBox(surfaceWindowForDialog(), {
+      type: 'info',
+      title: data.title || 'Update Available',
+      message: data.message || `A new version (v${remote}) is available.`,
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) {
+      openExternalSafe(data.downloadUrl || RELEASES_PAGE_URL);
+    }
+  } catch (err) {
+    console.error('Reserve update check failed:', err);
+  } finally {
+    reserveCheckInFlight = false;
+  }
+}
+
 function checkForUpdates(manual = false) {
   if (updateDownloaded) {
     if (manual) promptRestartForUpdate(updateDownloadedInfo);
@@ -1178,6 +1271,7 @@ function checkForUpdates(manual = false) {
     return;
   }
   manualCheckInFlight = manual;
+  primaryUpdateAvailableShown = false;
   autoUpdater.checkForUpdates().catch((err) => {
     manualCheckInFlight = false;
     if (manual) {
@@ -1191,11 +1285,15 @@ function checkForUpdates(manual = false) {
       console.error('Update check failed:', err);
     }
   });
+
+  // Always run the reserve (gist) check alongside the primary updater.
+  reserveUpdateCheck();
 }
 
 autoUpdater.on('update-available', async (info) => {
   if (updateDownloadStarted || updateDownloaded) return;
   manualCheckInFlight = false;
+  primaryUpdateAvailableShown = true; // let the reserve check yield to the primary updater
   const parent = surfaceWindowForDialog();
   const { response } = await dialog.showMessageBox(parent, {
     type: 'info',
