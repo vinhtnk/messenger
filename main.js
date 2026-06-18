@@ -48,7 +48,7 @@ const RESERVE_DECISION_GRACE_MS = 4000; // let the primary updater win the race 
 // every update cycle alongside the primary check. Leave empty to disable.
 // Expected JSON shape:
 //   { "latestVersion": "1.2.9", "title": "...", "message": "...", "downloadUrl": "https://..." }
-const RESERVE_UPDATE_GIST_URL = '';
+const RESERVE_UPDATE_GIST_URL = 'https://gist.githubusercontent.com/guide-vinh/048cd06243823a82cb95bcdcc1a039d0/raw/messenger-update.json';
 
 // Fallback download page (used when the gist omits downloadUrl), derived from
 // the publish config so there's no second hardcoded owner/repo.
