@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.10
+- Enable reserve update check via gist URL
+- Add Gist-based reserve update check
+
+
 ## v1.2.9
 - Fix main-process crash on update restart (null webContents)
 - Use a clean "Preview" title for the attachment viewer window
