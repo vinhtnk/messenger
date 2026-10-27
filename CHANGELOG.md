@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.11
+- Fix dependency CVEs: npm audit fix + Electron 35 -> 44
+
+
 ## v1.2.10
 - Enable reserve update check via gist URL
 - Add Gist-based reserve update check
