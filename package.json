@@ -19,7 +19,7 @@
   "license": "ISC",
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
-    "electron": "^35.0.0",
+    "electron": "^44.9.3",
     "electron-builder": "^26.0.12"
   },
   "build": {
