@@ -25,7 +25,7 @@
     padding: 12px 0;
     border-bottom: 1px solid #e5e5e7;
   }
-  .row:last-child { border-bottom: none; }
+  .row:last-of-type { border-bottom: none; }
   .row .info { flex: 1; padding-right: 14px; }
   .row label {
     font-size: 13px;
@@ -65,6 +65,27 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   }
   .toggle:checked::before { left: 20px; }
+  .row.stacked { display: block; }
+  .icons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .icon-choice {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 4px;
+    border: 2px solid transparent;
+    border-radius: 14px;
+    background: none;
+    cursor: pointer;
+  }
+  .icon-choice img {
+    display: block;
+    width: 64px;
+    height: 64px;
+  }
+  .icon-choice[aria-checked="true"] { border-color: #0866ff; }
 </style>
 </head>
 <body>
@@ -86,14 +107,37 @@
     <input type="checkbox" class="toggle" id="closePanelOnClickOutside" />
   </div>
 
+  <div class="row stacked">
+    <div class="info">
+      <label>App icon</label>
+      <div class="desc">Shown in the Dock while Messenger is running</div>
+    </div>
+    <div class="icons" role="radiogroup" aria-label="App icon">
+      <button class="icon-choice" role="radio" data-icon="white" title="Default"><img src="icons/white.png" alt="Default" /></button>
+      <button class="icon-choice" role="radio" data-icon="blue" title="Blue"><img src="icons/blue.png" alt="Blue" /></button>
+      <button class="icon-choice" role="radio" data-icon="dots" title="Chat dots"><img src="icons/dots.png" alt="Chat dots" /></button>
+      <button class="icon-choice" role="radio" data-icon="teal" title="Teal"><img src="icons/teal.png" alt="Teal" /></button>
+    </div>
+  </div>
+
   <script>
     const bubbleEnabled = document.getElementById('bubbleEnabled');
     const closePanelOnClickOutside = document.getElementById('closePanelOnClickOutside');
+    const iconChoices = document.querySelectorAll('.icon-choice');
 
     function render(s) {
       bubbleEnabled.checked = !!s.bubbleEnabled;
       closePanelOnClickOutside.checked = !!s.closePanelOnClickOutside;
+      iconChoices.forEach((btn) => {
+        btn.setAttribute('aria-checked', String(btn.dataset.icon === s.appIcon));
+      });
     }
+
+    iconChoices.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        window.settingsAPI.set({ appIcon: btn.dataset.icon });
+      });
+    });
 
     bubbleEnabled.addEventListener('change', () => {
       window.settingsAPI.set({ bubbleEnabled: bubbleEnabled.checked });

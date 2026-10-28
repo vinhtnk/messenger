@@ -15,7 +15,15 @@ const STORE_KEYS = {
   BUBBLE_POSITION: 'bubblePosition',
   BUBBLE_ENABLED: 'bubbleEnabled',
   CLOSE_PANEL_ON_CLICK_OUTSIDE: 'closePanelOnClickOutside',
+  APP_ICON: 'appIcon',
 };
+
+// Selectable Dock icons (PNGs in icons/, designed in design/logo.pen). The
+// default matches icon.icns, so it needs no runtime override. A chosen icon
+// only applies while the app runs; Finder/Launchpad keep the bundle icon
+// because rewriting the signed bundle would break notarization.
+const APP_ICONS = ['white', 'blue', 'dots', 'teal'];
+const DEFAULT_APP_ICON = 'white';
 
 const MESSENGER_URL = 'https://www.facebook.com/messages';
 
@@ -939,7 +947,20 @@ function getSettings() {
   return {
     bubbleEnabled: store.get(STORE_KEYS.BUBBLE_ENABLED, true),
     closePanelOnClickOutside: store.get(STORE_KEYS.CLOSE_PANEL_ON_CLICK_OUTSIDE, true),
+    appIcon: getAppIcon(),
   };
+}
+
+function getAppIcon() {
+  const id = store.get(STORE_KEYS.APP_ICON, DEFAULT_APP_ICON);
+  return APP_ICONS.includes(id) ? id : DEFAULT_APP_ICON;
+}
+
+// Only swaps the Dock tile image; never touch dock visibility or activation
+// policy here (see CLAUDE.md).
+function applyAppIcon() {
+  if (!app.dock) return;
+  app.dock.setIcon(path.join(__dirname, 'icons', `${getAppIcon()}.png`));
 }
 
 function notifySettingsChanged() {
@@ -958,6 +979,10 @@ function applySettings(next) {
   if (typeof next.closePanelOnClickOutside === 'boolean') {
     store.set(STORE_KEYS.CLOSE_PANEL_ON_CLICK_OUTSIDE, next.closePanelOnClickOutside);
   }
+  if (APP_ICONS.includes(next.appIcon)) {
+    store.set(STORE_KEYS.APP_ICON, next.appIcon);
+    applyAppIcon();
+  }
   updateBubbleVisibility();
   notifySettingsChanged();
 }
@@ -971,7 +996,7 @@ function openSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 320,
+    height: 440,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -1412,6 +1437,7 @@ if (!hasSingleInstanceLock) {
     await migrateSession();
     setupDownloads(session.fromPartition(SESSION_PARTITION));
     createMenu();
+    if (getAppIcon() !== DEFAULT_APP_ICON) applyAppIcon();
     createWindow();
 
     updateBubbleVisibility();

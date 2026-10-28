@@ -48,7 +48,7 @@ Preloads use `contextBridge` (contextIsolation on, nodeIntegration off):
 `chat-panel-*`, `viewer-*`, `settings-*`, `main-header-*`.
 
 Persisted state (`electron-store`): `windowBounds`, `bubblePosition`,
-`bubbleEnabled`, `sessionMigrated`.
+`bubbleEnabled`, `closePanelOnClickOutside`, `appIcon` (Dock icon id from `icons/`; the default `white` matches `icon.icns`), `sessionMigrated`.
 
 ## Gotchas — read before changing these
 
