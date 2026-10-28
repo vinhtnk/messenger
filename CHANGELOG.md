@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.12
+- New app icon and Dock icon picker in Preferences
+
+
 ## v1.2.11
 - Fix dependency CVEs: npm audit fix + Electron 35 -> 44
 
