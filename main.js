@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain, screen, clipboard } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, session, ipcMain, screen, clipboard, powerMonitor } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const path = require('path');
@@ -50,6 +50,19 @@ const INITIAL_UPDATE_CHECK_DELAY_MS = 3000; // first auto update check after lau
 const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000; // every 3 hours
 const RESERVE_FETCH_TIMEOUT_MS = 10000; // abort the reserve gist fetch if it hangs
 const RESERVE_DECISION_GRACE_MS = 4000; // let the primary updater win the race before the reserve notifies
+const RENDERER_RECOVERY_DELAY_MS = 1000; // pause before reloading a crashed/killed Messenger page
+const BOUNDS_SAVE_DEBOUNCE_MS = 500; // coalesce window move/resize writes to the store
+
+// Navigation diagnostics: every full (main-frame) load of a Messenger page is
+// logged with context (navigation type, how long the window was hidden, power
+// events, renderer exits) so unexpected reloads can be traced to a cause.
+// Lives in ~/Library/Logs/<app>/.
+const NAV_LOG_FILE_NAME = 'navigation.log';
+const NAV_LOG_MAX_BYTES = 1024 * 1024; // rotate to <name>.old past this size
+
+// Tokens Electron appends to Chrome's user agent. Facebook serves Electron UAs
+// as a non-standard browser, so we present as plain Chrome.
+const USER_AGENT_STRIP_TOKENS = ['Electron', app.getName()];
 
 // Reserve update check: a public GitHub Gist (raw URL) holding JSON we can edit
 // to announce a new version independently of the electron-updater feed. Runs on
@@ -198,6 +211,102 @@ const unreadByWebContents = new Map();
 const CHAT_PANEL_WIDTH = 400;
 const CHAT_PANEL_HEIGHT = 580;
 const BUBBLE_SIZE = 88;
+
+function debounce(fn, waitMs) {
+  let timer = null;
+  return (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, waitMs);
+  };
+}
+
+function navLogPath() {
+  return path.join(app.getPath('logs'), NAV_LOG_FILE_NAME);
+}
+
+function logNav(eventName, fields = {}) {
+  try {
+    const file = navLogPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.existsSync(file) && fs.statSync(file).size > NAV_LOG_MAX_BYTES) {
+      fs.renameSync(file, `${file}.old`);
+    }
+    const line = JSON.stringify({ t: new Date().toISOString(), event: eventName, ...fields });
+    fs.appendFileSync(file, `${line}\n`);
+  } catch (e) {
+    console.error('Navigation log write failed:', e);
+  }
+}
+
+function cleanUserAgent(ua) {
+  return USER_AGENT_STRIP_TOKENS.reduce((acc, token) => {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return acc.replace(new RegExp(`\\s${escaped}\\/\\S+`, 'gi'), '');
+  }, ua);
+}
+
+// Instrument a window that hosts Messenger: log every full page load with
+// context, and recover the page if its renderer dies (otherwise it stays blank).
+function watchMessengerContents(win, label) {
+  const wc = win.webContents;
+  let hiddenSince = win.isVisible() ? null : Date.now();
+  win.on('hide', () => { hiddenSince = Date.now(); });
+  win.on('show', () => { hiddenSince = null; });
+  let pageLoadedAt = null;
+  const context = () => ({
+    window: label,
+    visible: win.isVisible(),
+    hiddenForSec: hiddenSince ? Math.round((Date.now() - hiddenSince) / 1000) : 0,
+  });
+
+  // Renderer working-set memory, to tell memory-pressure reloads apart from
+  // Facebook's periodic stale-client reloads.
+  const rendererMemoryMB = () => {
+    const pid = wc.getOSProcessId();
+    const metric = app.getAppMetrics().find((m) => m.pid === pid);
+    return metric ? Math.round(metric.memory.workingSetSize / 1024) : null;
+  };
+
+  wc.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace) return;
+    logNav('navigation-start', {
+      ...context(),
+      url,
+      pageAgeMin: pageLoadedAt ? Math.round((Date.now() - pageLoadedAt) / 60000) : null,
+      rendererMemoryMB: rendererMemoryMB(),
+    });
+  });
+
+  wc.on('did-finish-load', () => {
+    pageLoadedAt = Date.now();
+    // 'reload' here means the page itself called location.reload().
+    wc.executeJavaScript(
+      "(performance.getEntriesByType('navigation')[0] || {}).type || 'unknown'"
+    )
+      .then((navType) => logNav('load-finished', { ...context(), navType, url: wc.getURL() }))
+      .catch(() => {});
+  });
+
+  wc.on('did-fail-load', (_event, errorCode, errorDescription, url, isMainFrame) => {
+    if (!isMainFrame) return;
+    logNav('load-failed', { ...context(), errorCode, errorDescription, url });
+  });
+
+  wc.on('unresponsive', () => logNav('unresponsive', context()));
+  wc.on('responsive', () => logNav('responsive', context()));
+
+  wc.on('render-process-gone', (_event, details) => {
+    logNav('renderer-gone', { ...context(), reason: details.reason, exitCode: details.exitCode });
+    if (isQuitting || details.reason === 'clean-exit') return;
+    setTimeout(() => {
+      if (win.isDestroyed() || wc.isDestroyed()) return;
+      wc.reload();
+    }, RENDERER_RECOVERY_DELAY_MS);
+  });
+}
 
 // One-time migration of cookies from default session to named persistent partition
 async function migrateSession() {
@@ -502,14 +611,17 @@ function createWindow() {
     title: 'Messenger',
   });
 
-  // Save window bounds on resize and move
-  mainWindow.on('resize', () => {
-    store.set(STORE_KEYS.WINDOW_BOUNDS, mainWindow.getBounds());
-  });
+  // Save window bounds on resize and move. Debounced: these fire continuously
+  // while dragging and each store.set rewrites config.json synchronously.
+  const win = mainWindow;
+  const saveBounds = debounce(() => {
+    if (win.isDestroyed()) return;
+    store.set(STORE_KEYS.WINDOW_BOUNDS, win.getBounds());
+  }, BOUNDS_SAVE_DEBOUNCE_MS);
+  mainWindow.on('resize', saveBounds);
+  mainWindow.on('move', saveBounds);
 
-  mainWindow.on('move', () => {
-    store.set(STORE_KEYS.WINDOW_BOUNDS, mainWindow.getBounds());
-  });
+  watchMessengerContents(mainWindow, 'main');
 
   mainWindow.loadURL(MESSENGER_URL);
 
@@ -710,6 +822,8 @@ function createChatPanel() {
 
   chatPanelWindow.setAlwaysOnTop(true, 'floating');
   chatPanelWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  watchMessengerContents(chatPanelWindow, 'chat-panel');
 
   chatPanelWindow.loadURL(MESSENGER_URL);
 
@@ -1434,6 +1548,12 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    app.userAgentFallback = cleanUserAgent(app.userAgentFallback);
+    for (const evt of ['suspend', 'resume', 'lock-screen', 'unlock-screen']) {
+      powerMonitor.on(evt, () => logNav(`power-${evt}`));
+    }
+    logNav('app-start', { version: app.getVersion() });
+
     await migrateSession();
     setupDownloads(session.fromPartition(SESSION_PARTITION));
     createMenu();
