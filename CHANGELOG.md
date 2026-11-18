@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.13
+- Cap web cache size, clean up stale caches, add Clear Cache button
+- Add navigation diagnostics, renderer recovery and clean Chrome UA
+
+
 ## v1.2.12
 - New app icon and Dock icon picker in Preferences
 
