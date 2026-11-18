@@ -86,6 +86,17 @@
     height: 64px;
   }
   .icon-choice[aria-checked="true"] { border-color: #0866ff; }
+  .button {
+    font: inherit;
+    padding: 4px 12px;
+    border: 1px solid #c7c7cc;
+    border-radius: 6px;
+    background: white;
+    color: #1d1d1f;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .button:disabled { color: #a1a1a6; cursor: default; }
 </style>
 </head>
 <body>
@@ -120,6 +131,14 @@
     </div>
   </div>
 
+  <div class="row">
+    <div class="info">
+      <label>Web cache</label>
+      <div class="desc" id="cacheDesc">Cached files and compiled scripts. Your chats are kept.</div>
+    </div>
+    <button class="button" id="clearCache">Clear Cache</button>
+  </div>
+
   <script>
     const bubbleEnabled = document.getElementById('bubbleEnabled');
     const closePanelOnClickOutside = document.getElementById('closePanelOnClickOutside');
@@ -147,6 +166,27 @@
       window.settingsAPI.set({ closePanelOnClickOutside: closePanelOnClickOutside.checked });
     });
 
+    const clearCacheBtn = document.getElementById('clearCache');
+    const cacheDesc = document.getElementById('cacheDesc');
+    const CACHE_DESC = 'Cached files and compiled scripts. Your chats are kept.';
+
+    function renderCacheSize(mb) {
+      cacheDesc.textContent = `${CACHE_DESC} Using ${mb} MB.`;
+    }
+
+    clearCacheBtn.addEventListener('click', async () => {
+      clearCacheBtn.disabled = true;
+      clearCacheBtn.textContent = 'Clearing…';
+      try {
+        renderCacheSize(await window.settingsAPI.clearCache());
+        clearCacheBtn.textContent = 'Cleared';
+      } catch (e) {
+        clearCacheBtn.textContent = 'Clear Cache';
+        clearCacheBtn.disabled = false;
+      }
+    });
+
+    window.settingsAPI.getCacheSize().then(renderCacheSize).catch(() => {});
     window.settingsAPI.onUpdate(render);
     window.settingsAPI.get().then(render);
   </script>

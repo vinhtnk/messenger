@@ -16,6 +16,8 @@ const STORE_KEYS = {
   BUBBLE_ENABLED: 'bubbleEnabled',
   CLOSE_PANEL_ON_CLICK_OUTSIDE: 'closePanelOnClickOutside',
   APP_ICON: 'appIcon',
+  LEGACY_SESSION_CLEARED: 'legacySessionCleared',
+  LAST_RUN_VERSION: 'lastRunVersion',
 };
 
 // Selectable Dock icons (PNGs in icons/, designed in design/logo.pen). The
@@ -29,6 +31,21 @@ const MESSENGER_URL = 'https://www.facebook.com/messages';
 
 // Named persistent session shared by the main and chat-panel windows.
 const SESSION_PARTITION = 'persist:messenger';
+
+// Cache limits. Facebook ships large JS bundles that change almost daily, and
+// Chromium's HTTP cache has no hard cap unless one is set, so it grows to ~1GB.
+const DISK_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+const BYTES_PER_MB = 1024 * 1024;
+
+// electron-updater keeps the last downloaded release in
+// <cache>/<package name>-updater/pending; once that version is installed the
+// copy is dead weight. (update.zip next to it is kept: it is the base for
+// differential downloads.)
+const UPDATER_CACHE_DIR_NAME = `${require('./package.json').name}-updater`;
+const UPDATER_PENDING_DIR_NAME = 'pending';
+
+// Must be set before the app is ready; applies to every session's HTTP cache.
+app.commandLine.appendSwitch('disk-cache-size', String(DISK_CACHE_MAX_BYTES));
 
 // Subdirectory (under the OS temp dir) where previewable attachments are staged.
 const ATTACHMENT_CACHE_DIR_NAME = 'Messenger Attachments';
@@ -209,6 +226,7 @@ let lastBadgeCount = 0;
 const unreadByWebContents = new Map();
 
 const CHAT_PANEL_WIDTH = 400;
+const SETTINGS_WINDOW_HEIGHT = 520; // fits all Preferences rows without scrolling
 const CHAT_PANEL_HEIGHT = 580;
 const BUBBLE_SIZE = 88;
 
@@ -331,6 +349,56 @@ async function migrateSession() {
   }
 
   store.set(STORE_KEYS.SESSION_MIGRATED, true);
+}
+
+// Before the move to SESSION_PARTITION, Messenger ran in the default session.
+// Its IndexedDB/HTTP cache/code cache (~1GB) stayed on disk unused; the default
+// session now only hosts local pages (settings, bubble, viewer). Clear it once.
+async function clearLegacySessionData() {
+  if (!store.get(STORE_KEYS.SESSION_MIGRATED)) return;
+  if (store.get(STORE_KEYS.LEGACY_SESSION_CLEARED)) return;
+  const ses = session.defaultSession;
+  try {
+    await ses.clearStorageData();
+    await ses.clearCache();
+    await ses.clearCodeCaches({});
+    store.set(STORE_KEYS.LEGACY_SESSION_CLEARED, true);
+  } catch (e) {
+    console.error('Clearing legacy session data failed:', e);
+  }
+}
+
+// After an app update: drop compiled JS left over from older Facebook bundles
+// and the already-installed copy of the update download.
+async function pruneCachesAfterUpdate() {
+  const version = app.getVersion();
+  if (store.get(STORE_KEYS.LAST_RUN_VERSION) === version) return;
+  try {
+    await session.fromPartition(SESSION_PARTITION).clearCodeCaches({});
+  } catch (e) {
+    console.error('Clearing code cache failed:', e);
+  }
+  try {
+    const pendingDir = path.join(app.getPath('cache'), UPDATER_CACHE_DIR_NAME, UPDATER_PENDING_DIR_NAME);
+    fs.rmSync(pendingDir, { recursive: true, force: true });
+  } catch (e) {
+    console.error('Removing stale update download failed:', e);
+  }
+  store.set(STORE_KEYS.LAST_RUN_VERSION, version);
+}
+
+async function getWebCacheSizeMB() {
+  const bytes = await session.fromPartition(SESSION_PARTITION).getCacheSize();
+  return Math.round(bytes / BYTES_PER_MB);
+}
+
+// HTTP + code cache only. IndexedDB is left alone: it holds Messenger's local
+// end-to-end encrypted history, and clearing it forces a PIN restore/resync.
+async function clearWebCache() {
+  const ses = session.fromPartition(SESSION_PARTITION);
+  await ses.clearCache();
+  await ses.clearCodeCaches({});
+  return getWebCacheSizeMB();
 }
 
 function uniquePath(dir, filename, fallbackBase) {
@@ -1110,7 +1178,7 @@ function openSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 440,
+    height: SETTINGS_WINDOW_HEIGHT,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -1157,6 +1225,9 @@ ipcMain.handle('settings-get', () => getSettings());
 ipcMain.on('settings-set', (_e, next) => {
   applySettings(next || {});
 });
+
+ipcMain.handle('settings-get-cache-size', () => getWebCacheSizeMB());
+ipcMain.handle('settings-clear-cache', () => clearWebCache());
 
 function createMenu() {
   const template = [
@@ -1555,6 +1626,8 @@ if (!hasSingleInstanceLock) {
     logNav('app-start', { version: app.getVersion() });
 
     await migrateSession();
+    await clearLegacySessionData();
+    await pruneCachesAfterUpdate();
     setupDownloads(session.fromPartition(SESSION_PARTITION));
     createMenu();
     if (getAppIcon() !== DEFAULT_APP_ICON) applyAppIcon();
